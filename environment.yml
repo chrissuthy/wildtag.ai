@@ -1,0 +1,15 @@
+# wildtag.ai bundled environment
+# Build with: python build_env.py
+name: wildtag
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pytorch=2.3
+  - torchvision=0.18
+  - cpuonly
+  - pillow
+  - numpy
+  - pip
