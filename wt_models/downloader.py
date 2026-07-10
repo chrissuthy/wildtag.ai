@@ -116,11 +116,7 @@ def download_weights(
 
     log(f"  Downloading {filename} (~{expected_size_mb} MB)...")
 
-    def _reporthook(count, block_size, total_size):
-        done = min(count * block_size, total_size)
-        progress(done, total_size)
-
-    urllib.request.urlretrieve(url, dest, reporthook=_reporthook)
+    _download_file(url, dest, log, progress, expected_size_mb)
     progress(dest.stat().st_size, dest.stat().st_size)
 
     if checksum:
@@ -137,6 +133,142 @@ def download_weights(
     return dest
 
 
+def _cache_bundle_dir(cache_bundle: dict) -> Path:
+    """Where a cache bundle should be extracted to. Driven by the registry
+    entry's 'extract_to' (relative to models/), so it matches exactly where
+    the runner looks. For SpeciesNet this is
+    models/speciesnet-global/kagglehub_cache, the path _runner.py points
+    KAGGLEHUB_CACHE at."""
+    rel = cache_bundle.get("extract_to", "")
+    return models_dir() / rel if rel else models_dir()
+
+
+def cache_bundle_present(cache_bundle: dict) -> bool:
+    """True if the extracted cache bundle already exists (probe path present
+    under the bundle's extract dir)."""
+    base  = _cache_bundle_dir(cache_bundle)
+    probe = cache_bundle.get("probe", "")
+    return (base / probe).exists() if probe else base.exists()
+
+
+def _parse_hf_url(url: str):
+    """If url is a Hugging Face resolve URL, return (repo_id, filename) so we
+    can use huggingface_hub's resumable, retrying downloader. Otherwise None.
+    Expected form:
+      https://huggingface.co/<user>/<repo>/resolve/<rev>/<path/to/file>
+    """
+    import re
+    m = re.match(
+        r"https?://huggingface\.co/([^/]+/[^/]+)/resolve/([^/]+)/(.+)$", url)
+    if not m:
+        return None
+    repo_id, revision, filename = m.group(1), m.group(2), m.group(3)
+    return repo_id, revision, filename
+
+
+def _download_file(url: str, dest: Path,
+                   log: Callable[[str], None],
+                   progress: Callable[[int, int], None],
+                   expected_size_mb: int) -> None:
+    """Download url -> dest. Prefer huggingface_hub for HF URLs (resumable,
+    retrying, integrity-checked); fall back to urllib otherwise."""
+    hf = _parse_hf_url(url)
+    if hf:
+        repo_id, revision, filename = hf
+        try:
+            from huggingface_hub import hf_hub_download
+            log("  Downloading via Hugging Face (resumable)...")
+            # hf_hub_download resumes partial downloads and retries on
+            # transient network errors automatically. It downloads into its
+            # own cache, then we copy the resolved file to dest.
+            cached = hf_hub_download(
+                repo_id=repo_id, filename=filename, revision=revision)
+            import shutil
+            shutil.copy(cached, dest)
+            progress(dest.stat().st_size, dest.stat().st_size)
+            return
+        except Exception as e:
+            log(f"  Hugging Face download unavailable ({e}); "
+                f"falling back to direct download.")
+
+    # Fallback: plain urllib (no resume, but works for any host)
+    def _reporthook(count, block_size, total_size):
+        if total_size > 0:
+            progress(min(count * block_size, total_size), total_size)
+        else:
+            progress(count * block_size, expected_size_mb * 1024 * 1024)
+    urllib.request.urlretrieve(url, dest, reporthook=_reporthook)
+
+
+def download_cache_bundle(
+    model_id:     str,
+    cache_bundle: dict,
+    log:      Callable[[str], None] = print,
+    progress: Callable[[int, int], None] = lambda done, total: None,
+) -> None:
+    """
+    Download a zipped model-cache bundle (e.g. SpeciesNet's kagglehub cache)
+    and extract it to where the runner expects it
+    (models/speciesnet-global/kagglehub_cache), so SpeciesNet finds its
+    models locally with no Kaggle contact. Skips if already present.
+
+    The zip is expected to contain a top-level `kagglehub/` folder.
+    """
+    import zipfile, tempfile
+
+    if cache_bundle_present(cache_bundle):
+        log("  SpeciesNet model files already present.")
+        return
+
+    url              = cache_bundle["url"]
+    expected_size_mb = cache_bundle.get("size_mb", 0)
+    extract_to       = _cache_bundle_dir(cache_bundle)
+    extract_to.mkdir(parents=True, exist_ok=True)
+
+    log(f"  Downloading SpeciesNet model files (~{expected_size_mb} MB)...")
+    log("  This is a one-time download; it's reused on future runs.")
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="speciesnet_")
+    os.close(tmp_fd)
+    tmp_zip = Path(tmp_path)
+
+    try:
+        _download_file(url, tmp_zip, log, progress, expected_size_mb)
+
+        log("  Extracting model files...")
+        with zipfile.ZipFile(tmp_zip, "r") as zf:
+            zf.extractall(extract_to)
+
+        # The hosted zip has models/ at its root, so it extracts straight to
+        # <extract_to>/models/... which is exactly where the runner's
+        # KAGGLEHUB_CACHE points. As a safety net, if a future zip ever has
+        # an extra kagglehub/ wrapper, lift its contents up one level.
+        wrapper = extract_to / "kagglehub"
+        if wrapper.is_dir() and not (extract_to / "models").exists():
+            import shutil
+            for child in wrapper.iterdir():
+                dest = extract_to / child.name
+                if dest.exists():
+                    shutil.rmtree(dest) if dest.is_dir() else dest.unlink()
+                shutil.move(str(child), str(dest))
+            try:
+                wrapper.rmdir()
+            except OSError:
+                pass
+
+        if not cache_bundle_present(cache_bundle):
+            raise RuntimeError(
+                "Download completed but the model files were not found "
+                "where expected after extraction. The download may be "
+                "corrupt; please try again.")
+        log("  SpeciesNet model files ready.")
+    finally:
+        try:
+            tmp_zip.unlink()
+        except OSError:
+            pass
+
+
 def ensure_model(
     model_id:  str,
     log:       Callable[[str], None] = print,
@@ -150,10 +282,34 @@ def ensure_model(
     """
     from wt_models.registry import get_model
 
+    meta = get_model(model_id)
+
+    # Cache-bundle models (e.g. SpeciesNet) keep their real model files in a
+    # library cache (kagglehub) outside models/, so the ready.json marker
+    # alone isn't enough — the cache itself could be missing even if the
+    # marker exists. Check the actual cache presence for these.
+    cache_bundle = meta.get("cache_bundle")
+    if cache_bundle:
+        # Still install pip deps (idempotent, fast if already there)
+        if meta.get("pip_deps"):
+            log(f"\nSetting up {meta['name']}...")
+            log("  Checking dependencies...")
+            ensure_pip_deps(meta["pip_deps"], log)
+        if not cache_bundle_present(cache_bundle):
+            download_cache_bundle(
+                model_id     = model_id,
+                cache_bundle = cache_bundle,
+                log          = log,
+                progress     = progress,
+            )
+        else:
+            log(f"  {meta['name']}: model files present.")
+        mark_ready(model_id, {"id": model_id, "name": meta["name"]})
+        return model_dir(model_id)
+
     if is_ready(model_id):
         return model_dir(model_id)
 
-    meta = get_model(model_id)
     log(f"\nSetting up {meta['name']}...")
 
     # Install pip dependencies

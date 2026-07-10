@@ -191,6 +191,22 @@ def main():
         else:
             log(f"-- WARNING: local SpeciesNet cache not found, will use system cache")
 
+        # SpeciesNet runs as a separate subprocess, so PyTorch thread
+        # settings in THIS process don't reach it. Its PyTorch reads the
+        # thread count from these environment variables at startup; without
+        # them it often defaults to a single thread (or an unhelpful
+        # default), which makes CPU runs far slower than the machine can go.
+        # Pass the user's requested thread count through so the subprocess
+        # uses all the cores. Only set for CPU; on CUDA it's irrelevant.
+        if args.device != "cuda":
+            n_threads = str(max(1, int(args.threads)))
+            env["OMP_NUM_THREADS"]      = n_threads
+            env["MKL_NUM_THREADS"]      = n_threads
+            env["NUMEXPR_NUM_THREADS"]  = n_threads
+            env["OPENBLAS_NUM_THREADS"] = n_threads
+            env["TORCH_NUM_THREADS"]    = n_threads
+            log(f"-- SpeciesNet CPU threads set to {n_threads}")
+
         try:
             cmd = [
                 sys.executable,
@@ -209,24 +225,49 @@ def main():
                 cmd,
                 stdout=_sp.PIPE,
                 stderr=_sp.STDOUT,
-                text=True, encoding="utf-8",
+                text=True, encoding="utf-8", errors="replace",
                 env=env, bufsize=1)
 
+            import re as _re
+            # tqdm colours its bars with ANSI escape codes and redraws them
+            # in place using cursor-movement codes; piped to our log these
+            # show as raw junk and flood it with hundreds of near-identical
+            # lines. Strip the escapes and only surface a tidy update when a
+            # stage's percentage actually moves, so the log stays readable.
+            _ansi = _re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+            _pct  = _re.compile(r"([A-Za-z ]+?)\s*:\s*(\d+)%")
+            _last_pct = {}   # stage name -> last logged percent
             sn_img_count = 0
             for raw in sn_proc.stdout:
-                line = raw.rstrip()
+                line = _ansi.sub("", raw).rstrip()
                 if not line:
                     continue
-                # Try to extract progress from SpeciesNet output
-                if any(kw in line.lower() for kw in
-                       ("processing", "image", "prediction", "%")):
+                low = line.lower()
+
+                # Surface errors/warnings verbatim (they're rare and useful)
+                if "error" in low or "warning" in low:
                     log(f"  SN: {line}")
-                    # Emit a progress tick so the UI stays alive
-                    sn_img_count += 1
-                    if sn_img_count % 10 == 0:
-                        pct = min(sn_img_count, len(image_paths))
-                        progress(pct, len(image_paths))
-                elif "error" in line.lower() or "warning" in line.lower():
+                    continue
+
+                # tqdm progress line: "Stage name : 42%|... 16/38 ..."
+                m = _pct.search(line)
+                if m:
+                    stage = m.group(1).strip()
+                    pct   = int(m.group(2))
+                    # Log only when this stage advances by >=10% since last,
+                    # or hits 100%, so we get a handful of clean lines/stage
+                    prev = _last_pct.get(stage, -10)
+                    if pct >= prev + 10 or pct == 100:
+                        _last_pct[stage] = pct
+                        log(f"  SpeciesNet - {stage}: {pct}%")
+                        sn_img_count += 1
+                        progress(min(sn_img_count, len(image_paths)),
+                                 len(image_paths))
+                    continue
+
+                # Any other non-progress, non-blank line: pass through once
+                if any(kw in low for kw in ("processing", "loaded", "done",
+                                            "predictions", "saved")):
                     log(f"  SN: {line}")
 
             sn_proc.wait()

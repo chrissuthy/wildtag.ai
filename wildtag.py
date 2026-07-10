@@ -5640,8 +5640,39 @@ draw();
             from wt_models.registry import get_model as _get_model
             from wt_models.downloader import cache_bundle_present
             _meta = _get_model(cls_id)
+
+            # SpeciesNet is a GPU-scale model. On a CPU-only machine it runs
+            # very slowly (roughly 10+ seconds per image: it runs a full
+            # MegaDetector plus a large classifier plus geolocation on every
+            # image, with no empty-frame skipping). DeepFaune is far faster
+            # on CPU and excellent for UK/European wildlife. If the user
+            # picked SpeciesNet with the device set to CPU, warn them up
+            # front and offer to switch, before any download happens.
+            _dev = getattr(self, "_device_var", None)
+            _dev = _dev.get().split()[0] if _dev else "cpu"
+            if _meta.get("cache_bundle") and _dev != "cuda":
+                use_df = messagebox.askyesno(
+                    "SpeciesNet is slow without a GPU",
+                    "SpeciesNet runs very slowly on a computer without a "
+                    "graphics card (GPU), often around 10 seconds or more per "
+                    "image. No GPU was detected on this machine, so a project "
+                    "of a few thousand images could take many hours.\n\n"
+                    "For UK and European wildlife, DeepFaune is far faster "
+                    "and highly accurate, and it's already installed.\n\n"
+                    "Switch to DeepFaune (recommended)?\n\n"
+                    "Yes  -  use DeepFaune (fast)\n"
+                    "No   -  continue with SpeciesNet anyway (slow)")
+                if use_df:
+                    cls_id = "deepfaune-v1.4"
+                    df = next((m["name"] for m in REGISTRY
+                               if m["id"] == "deepfaune-v1.4"), None)
+                    if df:
+                        self._cls_model_var.set(df)
+                    _meta = _get_model(cls_id)  # re-fetch so the download
+                                                # check below sees DeepFaune
+
             _cb = _meta.get("cache_bundle")
-            if _cb and not cache_bundle_present(_cb.get("probe", "")):
+            if _cb and not cache_bundle_present(_cb):
                 size_mb = _cb.get("size_mb", 0)
                 choice = messagebox.askyesno(
                     "Download SpeciesNet?",

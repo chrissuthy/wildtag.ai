@@ -89,6 +89,21 @@ REGISTRY = [
             "species identification in camera trap images."
         ),
         "pip_deps":     ["speciesnet"],
+        "cache_bundle": {
+            # SpeciesNet's model files live in a kagglehub cache. The runner
+            # (_runner.py) points KAGGLEHUB_CACHE at
+            # models/speciesnet-global/kagglehub_cache, so we extract there.
+            # The hosted zip has models/ at its root, so it extracts straight
+            # to models/speciesnet-global/kagglehub_cache/models/google/speciesnet,
+            # exactly where the runner looks. (A stray kagglehub/ wrapper, if
+            # ever present in a future zip, is auto-flattened on extract.)
+            # 'extract_to' is relative to models/; 'probe' is relative to
+            # extract_to and its presence means "already downloaded".
+            "url":        "https://huggingface.co/chrissuthy/wildtag-speciesnet/resolve/main/speciesnet_cache.zip",
+            "size_mb":    512,
+            "extract_to": "speciesnet-global/kagglehub_cache",
+            "probe":      "models/google/speciesnet",
+        },
         "description":  (
             "Google's global species classifier covering 2000+ species "
             "across all continents."

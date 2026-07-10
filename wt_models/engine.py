@@ -228,6 +228,10 @@ def run_pipeline(
             stderr=subprocess.STDOUT,   # merge so nothing is lost or reordered
             text=True,
             encoding="utf-8",
+            errors="replace",           # SpeciesNet/tqdm output can contain
+                                        # non-UTF-8 bytes (e.g. Windows-1252
+                                        # dashes in progress bars); replace
+                                        # them rather than crashing the reader
             bufsize=1,
         )
 
