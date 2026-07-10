@@ -8,17 +8,21 @@ current, and never lose working code.
 
 Tracked (source code and small config/reference files):
 
-- `wildtag.py`, `engine.py`, `registry.py` — the application
-- `wt_models/*.py` — model runner source (not the weight files themselves)
+- `wildtag.py` — the main application
+- `engine.py`, `wt_models/*.py` — the model runner, downloader, and registry
+  source (not the weight files themselves)
+- `wildtag_installer.iss`, `wildtag_launch.vbs` — the installer script and
+  windowless launcher
 - `wildtag_project_brief.md` — project overview and architecture notes
-- All `.bat` scripts (`wildtag.bat`, `setup_gpu.bat`, `setup_validate_env.bat`,
-  `build_dist.bat`, `fix_shebangs.bat`) and `fix_shebangs.py`
-- `deployment_template.csv`, `README.txt`, `wildtag.ico`
+- All `.bat` scripts and `fix_shebangs.py`
+- `deployment_template.csv`, `README.txt`, `README_volunteer.txt`,
+  the `.md` guides, and `wildtag.ico`
 
 **Not tracked** (see `.gitignore`): `wildtag_env/`, `validate_env/`,
-`models/`, model weight files, build output (`wildtag_dist/`, `*.zip`),
-`__pycache__/`, and `wildtag_settings.json` (this is machine-specific runtime
-state, not part of the app).
+`models/`, model weight files, build output (`Output/`, `wildtag_dist/`,
+`*.zip`, the installer `.exe`/`.bin`), demo `*.mp4` videos, `__pycache__/`,
+per-project working data (`validation/`, `results*.csv`), and
+`wildtag_settings.json` (machine-specific runtime state, not part of the app).
 
 If a task genuinely requires adding something to `.gitignore` or removing
 something from it, raise it with the project lead first rather than editing
@@ -66,16 +70,18 @@ it unilaterally, it's easy to accidentally start tracking something huge.
 
 ## Release tagging
 
-Every time `build_dist.bat` is run to produce a real distribution zip
-(`wildtag_beta*.zip`), the commit used to build it gets tagged to match:
+Every time you build a real distributable (compiling `wildtag_installer.iss`
+into `Output\wildtag_Setup.exe` + `.bin`), tag the commit used to build it:
 
 ```
-git tag beta4
+git tag -a v1.1 -m "Short description of the release"
 git push --tags
 ```
 
-This means "what code produced this zip" always has an exact, permanent
-answer, check this before assuming a bug report is about the current code.
+This means "what code produced this installer" always has an exact,
+permanent answer, check this before assuming a bug report is about the
+current code. Bump the version in both the git tag and the
+`#define MyAppVersion` line in `wildtag_installer.iss` so they match.
 
 ## A note on stale copies
 

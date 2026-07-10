@@ -54,26 +54,35 @@ project root (RStudio's file pane, or Terminal tab, works fine) containing:
 wildtag_env/
 validate_env/
 models/
-wt_models/*.pt
-wt_models/*.onnx
-wt_models/*.pth
+wt_models/**/*.pt
+wt_models/**/*.pth
+wt_models/**/*.onnx
+Output/
 wildtag_dist/
 *.zip
+wildtag_Setup*.exe
+wildtag_Setup*.bin
+*.mp4
 __pycache__/
 *.pyc
+validation/
+results*.csv
 wildtag_settings.json
+.Rhistory
 .Rproj.user/
 ```
 
 Adjust the model-weight extensions to whatever your actual weight files use.
 This keeps multi-gigabyte binaries (the Python environments, model weights,
-build output) out of Git entirely, they don't diff meaningfully and would
-make every clone of the repo drag that weight around forever.
+build output, demo videos), and per-project working data, out of Git
+entirely. They don't diff meaningfully and would make every clone of the
+repo drag that weight around forever.
 
-**What does get tracked**: `wildtag.py`, `engine.py`, `registry.py`,
-`wildtag_project_brief.md`, every `.bat` script, `fix_shebangs.py`,
-`deployment_template.csv`, `README.txt`, `wildtag.ico`, and the `.py` source
-files under `wt_models\` (just not the weight files themselves).
+**What does get tracked**: `wildtag.py`, `engine.py`, the `.py` source under
+`wt_models\` (runner, downloader, registry, just not the weight files),
+`wildtag_installer.iss`, `wildtag_launch.vbs`, `wildtag_project_brief.md`,
+every `.bat` script, `fix_shebangs.py`, `deployment_template.csv`,
+`README.txt`, `README_volunteer.txt`, the `.md` guides, and `wildtag.ico`.
 
 ## Part 5 — First commit
 
@@ -110,15 +119,15 @@ files under `wt_models\` (just not the weight files themselves).
   rollback point if something goes sideways.
 - **Commit again once a fix is confirmed working** (not just written, tested
   and confirmed), with a message describing what changed.
-- **Tag every distribution build**: the moment you run `build_dist.bat` and
-  it produces e.g. `wildtag_beta3.zip`, tag the matching commit in the
-  Terminal tab:
+- **Tag every distribution build**: the moment you compile
+  `wildtag_installer.iss` into a real installer, tag the matching commit in
+  the Terminal tab:
   ```
-  git tag beta3
+  git tag -a v1.1 -m "Release description"
   git push --tags
   ```
-  This gives you a permanent, exact answer to "what code made this zip",
-  the exact problem that caused most of the confusion this session.
+  This gives you a permanent, exact answer to "what code made this
+  installer", the exact problem that caused most of the confusion early on.
 - **Treat the Git repo as the source of truth**, not whatever's sitting in
   a chat's project knowledge. Pull from Git at the start of a new
   development session rather than relying on an uploaded file that might be

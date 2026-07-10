@@ -226,7 +226,8 @@ def main():
                 stdout=_sp.PIPE,
                 stderr=_sp.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
-                env=env, bufsize=1)
+                env=env, bufsize=1,
+                creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0))
 
             import re as _re
             # tqdm colours its bars with ANSI escape codes and redraws them

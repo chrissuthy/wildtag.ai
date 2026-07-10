@@ -23,8 +23,14 @@ Run headless:
 """
 
 import os, sys, csv, re, hashlib, argparse, threading, json
+import subprocess as _subprocess
 from pathlib import Path
 from collections import defaultdict
+
+# On Windows a windowless (pythonw) app still pops a console window for each
+# subprocess it launches (nvidia-smi, pip, relaunch, model runner) unless we
+# suppress it. CREATE_NO_WINDOW does that; it's 0 (no-op) on other platforms.
+_NO_WINDOW = getattr(_subprocess, "CREATE_NO_WINDOW", 0)
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -581,11 +587,31 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
     collection_root = enriched_csv.parent
     validation_dir  = collection_root / "validation"
 
-    # Clear previous run's output to avoid stale images
     import shutil
+    # Resumable / crash-safe sorting. Previously this deleted the whole
+    # validation\ folder up front, so a crash partway through destroyed the
+    # old output AND left an incomplete new one (no validation.csv /
+    # valid_species.txt, which are written only after the loop). Now we
+    # don't wipe: if a sort is already partly done for THIS dataset, we
+    # resume, skipping images whose output already exists. A marker records
+    # which enriched CSV the in-progress folder belongs to, so we only
+    # resume on a match.
+    marker = validation_dir / ".sort_source"
     if validation_dir.exists():
-        shutil.rmtree(validation_dir)
+        try:
+            prev_src = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+        except Exception:
+            prev_src = ""
+        if prev_src == str(enriched_csv.resolve()):
+            log("  Found an incomplete validation folder for this project - "
+                "resuming (already-sorted images will be skipped).", "head")
+        else:
+            shutil.rmtree(validation_dir)
     validation_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        marker.write_text(str(enriched_csv.resolve()), encoding="utf-8")
+    except Exception:
+        pass
 
     log(f"  Output: {validation_dir}", "ok")
 
@@ -644,6 +670,22 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
             log(f"  SKIP  {msg}", "skip"); errors.append(msg); skipped += 1; continue
 
         dst = validation_dir / label / f"{det_id}.jpg"
+
+        # Resume support: if this image was already sorted in a previous
+        # (interrupted) run, don't redo the expensive decode/resize/draw.
+        # Still record its row so validation.csv is complete.
+        if dst.exists() and dst.stat().st_size > 0:
+            success += 1
+            validation_rows[label].append({
+                "detection_id": det_id, "image_id": img_id,
+                "image_name": f"{det_id}.jpg",
+                "original_path": row["relative_path"].strip(),
+                "datetime": row.get("DateTimeOriginal","").strip(),
+                "label": label, "confidence": conf_s,
+                "correct_label": "", "validated": "",
+            })
+            continue
+
         try:
             resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                              bbox_normalised=bbox_norm)
@@ -694,7 +736,85 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
         lp.write_text("\n".join(errors))
         log(f"Error log: {lp}", "error")
 
+    # Sort finished cleanly for this dataset — drop the in-progress marker
+    # so a later launch knows the folder is complete and won't try to resume.
+    try:
+        marker = validation_dir / ".sort_source"
+        if marker.exists():
+            marker.unlink()
+    except Exception:
+        pass
+
     return success, skipped
+
+
+def check_validation_complete(project_dir, enriched_csv=None):
+    """Check whether a project's validation\\ folder is complete.
+
+    Returns a dict:
+      status : "complete" | "incomplete" | "missing" | "unknown"
+      reason : short human-readable explanation
+      missing_csv     : list of species folders lacking validation.csv
+      missing_ref     : list of species folders lacking valid_species.txt
+      in_progress     : True if a .sort_source marker is present (an
+                        interrupted sort)
+
+    "incomplete" means the sort was interrupted or some per-folder files are
+    missing; the caller can offer to resume the sort to finish it.
+    """
+    from pathlib import Path as _P
+    project_dir = _P(project_dir)
+    vdir = project_dir / "validation"
+    result = {"status": "unknown", "reason": "",
+              "missing_csv": [], "missing_ref": [], "in_progress": False}
+
+    if not vdir.exists():
+        result["status"] = "missing"
+        result["reason"] = "No validation folder found."
+        return result
+
+    marker = vdir / ".sort_source"
+    if marker.exists():
+        result["in_progress"] = True
+
+    # Species folders are any subdirectory containing at least one image
+    species_dirs = []
+    for d in vdir.iterdir():
+        if not d.is_dir():
+            continue
+        has_img = any(f.suffix.lower() in (".jpg", ".jpeg", ".png")
+                      for f in d.iterdir() if f.is_file())
+        if has_img:
+            species_dirs.append(d)
+
+    for d in species_dirs:
+        if not (d / "validation.csv").exists():
+            result["missing_csv"].append(d.name)
+        if not (d / "valid_species.txt").exists():
+            result["missing_ref"].append(d.name)
+
+    if result["in_progress"]:
+        result["status"] = "incomplete"
+        result["reason"] = ("A previous sort was interrupted before it "
+                            "finished. It can be resumed to complete the "
+                            "validation folders.")
+    elif result["missing_csv"] or result["missing_ref"]:
+        result["status"] = "incomplete"
+        bits = []
+        if result["missing_csv"]:
+            bits.append(f"{len(result['missing_csv'])} folder(s) missing validation.csv")
+        if result["missing_ref"]:
+            bits.append(f"{len(result['missing_ref'])} folder(s) missing valid_species.txt")
+        result["reason"] = ("Validation folder looks incomplete: "
+                            + "; ".join(bits) + ".")
+    elif not species_dirs:
+        result["status"] = "missing"
+        result["reason"] = "Validation folder exists but contains no sorted images."
+    else:
+        result["status"] = "complete"
+        result["reason"] = f"{len(species_dirs)} species folder(s), all with data files."
+
+    return result
 
 def run_pipeline(csv_path, quality, max_long_edge, log):
     enriched = enrich_csv(csv_path, log)
@@ -715,11 +835,26 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
     collection_root = enriched_csv.parent
     validation_dir  = collection_root / "validation"
 
-    # Clear previous run's output to avoid stale images
     import shutil
+    # Resumable / crash-safe (see sort_detections for the full rationale):
+    # don't wipe the folder up front; resume if a prior sort of THIS dataset
+    # was interrupted, else start fresh.
+    marker = validation_dir / ".sort_source"
     if validation_dir.exists():
-        shutil.rmtree(validation_dir)
+        try:
+            prev_src = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+        except Exception:
+            prev_src = ""
+        if prev_src == str(enriched_csv.resolve()):
+            log("  Found an incomplete validation folder for this project - "
+                "resuming (already-sorted images will be skipped).", "head")
+        else:
+            shutil.rmtree(validation_dir)
     validation_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        marker.write_text(str(enriched_csv.resolve()), encoding="utf-8")
+    except Exception:
+        pass
 
     log(f"  Output: {validation_dir}", "ok")
 
@@ -800,6 +935,22 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
             log(f"  SKIP  {msg}", "skip"); errors.append(msg); skipped += 1; continue
 
         dst = validation_dir / label / f"{det_id}.jpg"
+
+        # Resume: skip images already sorted by a prior interrupted run,
+        # but still record the row (and count) so outputs stay complete.
+        if dst.exists() and dst.stat().st_size > 0:
+            success += 1
+            species_counts[label] += 1
+            validation_rows[label].append({
+                "detection_id": det_id, "image_id": img_id,
+                "image_name": f"{det_id}.jpg",
+                "original_path": row["relative_path"].strip(),
+                "datetime": row.get("DateTimeOriginal","").strip(),
+                "label": label, "confidence": conf_s,
+                "correct_label": "", "validated": "",
+            })
+            continue
+
         try:
             resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                              bbox_normalised=bbox_norm,
@@ -853,6 +1004,14 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
         lp.write_text("\n".join(errors))
         log(f"Error log: {lp}", "error")
 
+    # Completed cleanly — drop the in-progress marker.
+    try:
+        marker = validation_dir / ".sort_source"
+        if marker.exists():
+            marker.unlink()
+    except Exception:
+        pass
+
     return success, skipped, dict(species_counts)
 
 
@@ -868,6 +1027,18 @@ class WildTagApp(tk.Tk):
         self.configure(bg=C["frost"])
         self.minsize(820, 640)
         self.geometry("960x720")
+
+        # On Windows, a pythonw.exe-hosted app shows Python's icon in the
+        # taskbar (Windows groups it under the python executable) even after
+        # iconbitmap sets the window icon. Declaring our own AppUserModelID
+        # makes Windows treat wildtag as its own application, so the taskbar
+        # shows the wildtag icon. Harmless / no-op on non-Windows.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "wildtag.ai.desktop.1")
+        except Exception:
+            pass
 
         ico = Path(__file__).parent / "wildtag.ico"
         if ico.exists():
@@ -1210,7 +1381,8 @@ class WildTagApp(tk.Tk):
             import subprocess
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                capture_output=True, text=True, timeout=5)
+                capture_output=True, text=True, timeout=5,
+                creationflags=_NO_WINDOW)
             has_nvidia = result.returncode == 0 and result.stdout.strip()
         except Exception:
             has_nvidia = False
@@ -1311,7 +1483,8 @@ class WildTagApp(tk.Tk):
 
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT, text=True)
+                    stderr=subprocess.STDOUT, text=True,
+                    creationflags=_NO_WINDOW)
 
                 # Pulse the bar while waiting
                 for i, line in enumerate(proc.stdout):
@@ -1333,7 +1506,8 @@ class WildTagApp(tk.Tk):
                 verify = subprocess.run(
                     [str(python_exe), "-c",
                      "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"],
-                    capture_output=True, timeout=60)
+                    capture_output=True, timeout=60,
+                    creationflags=_NO_WINDOW)
                 self.after(0, lambda: _animate_bar(100))
 
                 if verify.returncode == 0:
@@ -1369,7 +1543,7 @@ class WildTagApp(tk.Tk):
             "GPU acceleration has been enabled.\n\n"
             "wildtag will now restart.")
         # Restart the process
-        subprocess.Popen([sys.executable] + sys.argv)
+        subprocess.Popen([sys.executable] + sys.argv, creationflags=_NO_WINDOW)
         self.destroy()
 
     def _card(self, parent):
@@ -1754,7 +1928,7 @@ class WildTagApp(tk.Tk):
             self._settings["theme"] = new_theme
             save_settings(self._settings)
             import subprocess, sys
-            subprocess.Popen([sys.executable] + sys.argv)
+            subprocess.Popen([sys.executable] + sys.argv, creationflags=_NO_WINDOW)
             self.destroy()
 
         theme_icon = "🌙" if self._settings.get("theme","light") == "light" else "☀"
@@ -4201,9 +4375,18 @@ Thank you for your help.
                 zname = f"{sp}{sfx}_validation.zip"
                 zpath = out_path / zname
                 try:
-                    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as zf:
+                    # Open with STORED (no compression) as the default.
+                    # Camera-trap images are JPEGs, already compressed, so
+                    # running DEFLATE over them costs a lot of CPU for almost
+                    # no size saving, this is the main reason zipping 1000+
+                    # images was slow. We store images as-is (near-instant)
+                    # and explicitly DEFLATE only the genuinely compressible
+                    # files (text, CSV, Python, the validate_env) via the
+                    # compress_type argument per write.
+                    DEF = zipfile.ZIP_DEFLATED
+                    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_STORED) as zf:
                         if wildtag_py.exists():
-                            zf.write(wildtag_py,  "wildtag.py")
+                            zf.write(wildtag_py,  "wildtag.py", compress_type=DEF)
                         if wildtag_ico.exists():
                             zf.write(wildtag_ico, "wildtag.ico")
 
@@ -4212,7 +4395,8 @@ Thank you for your help.
                         if wt_models_dir.exists():
                             for f in wt_models_dir.rglob("*.py"):
                                 rel = f.relative_to(script_dir)
-                                zf.write(f, str(rel).replace("\\", "/"))
+                                zf.write(f, str(rel).replace("\\", "/"),
+                                         compress_type=DEF)
                         bat = ("@echo off\r\n"
                                "cd /d \"%~dp0\"\r\n"
                                "set TCL_LIBRARY=%~dp0validate_env\\tcl\\tcl8.6\r\n"
@@ -4238,7 +4422,10 @@ Thank you for your help.
                             except Exception:
                                 pass
                         if custom_txt.exists():
-                            zf.write(custom_txt, "validation/custom_species.txt")
+                            zf.write(custom_txt, "validation/custom_species.txt",
+                                     compress_type=DEF)
+                        # Images: STORED (default) — already compressed, so
+                        # no recompression, this is the big speedup.
                         for f in batch:
                             zf.write(f, f"validation/{sp}/{f.name}")
                         for f in meta:
@@ -4247,7 +4434,8 @@ Thank you for your help.
                             for f in validate_env.rglob("*"):
                                 if f.is_file():
                                     rel = f.relative_to(validate_env)
-                                    zf.write(f, f"validate_env/{rel}")
+                                    zf.write(f, f"validate_env/{rel}",
+                                             compress_type=DEF)
 
                         # Filtered sibling-bbox data for this batch only
                         if master_rows:
@@ -5011,6 +5199,59 @@ draw();
         # needed: this is purely to warm the cache ahead of time.
         self._get_aggregates()
 
+        # Also check whether the validation folder is complete. A crash
+        # during the sort step (e.g. an interrupted GPU run) can leave it
+        # half-built. If so, offer to finish it rather than let the user
+        # discover missing images/folders later during validation.
+        try:
+            info = check_validation_complete(path)
+            if info["status"] == "incomplete":
+                self.after(300, lambda: self._offer_resume_sort(path, info))
+        except Exception:
+            pass
+
+    def _offer_resume_sort(self, project_path, info):
+        """Prompt to finish an interrupted/incomplete sort, then run it. The
+        sort is resumable, so this only fills in what's missing."""
+        do_it = messagebox.askyesno(
+            "Finish building validation folders?",
+            "wildtag detected that the validation folders for this project "
+            "are incomplete, most likely a previous run was interrupted "
+            "before it finished.\n\n"
+            f"{info['reason']}\n\n"
+            "Finish building them now? (Already-sorted images are kept and "
+            "skipped, so this only completes the missing work.)")
+        if not do_it:
+            return
+        enriched = Path(project_path) / "results_with_ids.csv"
+        if not enriched.exists():
+            enriched = Path(project_path) / "results.csv"
+        if not enriched.exists():
+            messagebox.showerror(
+                "Cannot resume",
+                "The results file needed to rebuild the validation folders "
+                "was not found in this project.")
+            return
+
+        def _work():
+            try:
+                quality = self._QUALITY_MAP.get(
+                    self._quality_var.get(), 65) if hasattr(self, "_quality_var") else 65
+                cls = getattr(self, "_last_classifier_id", "") or ""
+                sort_detections_counted(
+                    enriched, quality, None,
+                    self._log,
+                    classifier_id=cls)
+                self.after(0, lambda: messagebox.showinfo(
+                    "Validation folders complete",
+                    "The validation folders have been finished. You can now "
+                    "validate as normal."))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror(
+                    "Resume failed",
+                    f"Could not finish the validation folders:\n{e}"))
+        threading.Thread(target=_work, daemon=True).start()
+
     def _show_linking_popup(self):
         """Small modal shown while the aggregate cache builds, so the user
         knows wildtag is syncing rather than frozen."""
@@ -5700,6 +5941,7 @@ draw();
         det_conf  = self._det_conf_var.get()
         cls_conf  = self._cls_conf_var.get()
         quality   = self._QUALITY_MAP.get(self._quality_var.get(), 65)
+        self._last_classifier_id = cls_id  # remembered for resume-sort
         do_val    = self._do_validation.get()
         chk_every = self._CHECKPOINT_MAP.get(self._checkpoint_var.get(), 200)
         geofence  = getattr(self, "_geofence_var", None)

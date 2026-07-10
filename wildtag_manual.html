@@ -128,7 +128,7 @@
     <div style="font-family:Segoe UI,system-ui,sans-serif;font-size:40px;font-weight:300;color:#fff;letter-spacing:-1px;">wild<span style="font-weight:700;color:#74C69D;">tag</span><span style="color:#B7E4C7;">.ai</span></div>
   </div>
   <p>Automated species identification for camera trap images - powered by AI, designed for ecologists.</p>
-  <div class="meta">User Manual - Beta 1 - June 2026</div>
+  <div class="meta">User Manual - Version 1.1 - July 2026</div>
 </div>
 
 <div class="layout">
@@ -155,7 +155,7 @@
 
 <h2 id="overview">1. Overview</h2>
 
-<p>wildtag.ai processes folders of camera trap images automatically - detecting animals, classifying species, and organising results for review. It runs entirely on your computer with no internet connection required after installation.</p>
+<p>wildtag.ai processes folders of camera trap images automatically - detecting animals, classifying species, and organising results for review. It runs on your computer and needs no internet connection for everyday use with the bundled DeepFaune model. An internet connection is used only to download the installer and, optionally, the SpeciesNet model the first time it is chosen.</p>
 
 <p>The workflow has four stages:</p>
 
@@ -166,8 +166,8 @@
 
 <h2 id="getting-started">2. Getting Started</h2>
 
-<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Download and unzip</strong> Download the zip from the link provided. Right-click and select "Extract All". Choose a permanent location with around 5 GB of free space. Do not run wildtag from inside the zip file.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body"><strong>Launch the app</strong> Open the unzipped folder and double-click <code>wildtag.bat</code>. A brief console window appears, then the wildtag interface opens.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Download the installer</strong> Download <code>wildtag_installer.zip</code> from the link provided (about 1.8 GB, use wifi). Right-click it and select "Extract All". Inside are <code>wildtag_Setup.exe</code> and a <code>.bin</code> file; keep them together.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><strong>Install and launch</strong> Double-click <code>wildtag_Setup.exe</code> and follow the wizard (no administrator rights needed). It creates a desktop and Start Menu shortcut. Launch wildtag from the shortcut; it opens directly with no console window. If Windows shows a security warning, click "More info" then "Run anyway" - this is normal for software that is not yet code-signed.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body"><strong>Organise your images</strong> wildtag works on a folder of JPEGs. Subfolders are supported - all images are found automatically. Each run should correspond to one survey site or session.</div></div>
 
 <div class="callout">
@@ -189,6 +189,8 @@
 </table>
 
 <div class="callout">When SpeciesNet is selected it runs its own internal detector. The MegaDetector setting is ignored.</div>
+<div class="callout">DeepFaune is included and ready to use. <strong>SpeciesNet is not bundled</strong>: the first time you select it, wildtag offers to download its model files (about 500 MB, one time only).</div>
+<div class="callout warn"><strong>SpeciesNet needs a GPU to be practical.</strong> On a computer without a graphics card it is very slow, often 10 or more seconds per image, so a large project could take many hours. wildtag warns you and offers DeepFaune instead when you pick SpeciesNet on a machine with no GPU. For UK and European wildlife, DeepFaune is the recommended choice.</div>
 
 <h3>Set confidence thresholds</h3>
 <ul>
@@ -212,7 +214,8 @@
 </ul>
 
 <h3>Running</h3>
-<p>Click Run wildtag. The log panel shows live progress. A 38-image folder takes 3-10 minutes on CPU depending on the model chosen. SpeciesNet takes longer as it runs a full internal pipeline.</p>
+<p>Click Run wildtag. The log panel shows live progress. With DeepFaune, a few dozen images take a couple of minutes on CPU. SpeciesNet is much slower on CPU (often 10+ seconds per image) because it runs a full detector, classifier, and geolocation pipeline on every image; it is best run on a GPU.</p>
+<div class="callout">If a run is interrupted (for example the computer restarts partway through sorting images into species folders), wildtag can recover. When you reopen the project it detects the incomplete validation folder and offers to finish it, keeping the images already sorted and only completing what is missing.</div>
 
 <h2 id="validate">4. Validating Results</h2>
 
@@ -231,6 +234,7 @@
 </ul>
 
 <p>The correction dropdown is ordered: <em>unidentifiable</em> first, then species alphabetically, then broad groups such as mustelid or lagomorph, then special labels.</p>
+<p>If the species you need is not listed, use the <strong>"Not listed? Add a label"</strong> box in the correction dialog to add it. New labels are saved to <code>validation/custom_species.txt</code> in the project, stay available for the rest of the project, and are included in volunteer packages so everyone sees the same options.</p>
 
 <h3>Completing a batch</h3>
 <p>Once you have reviewed all images in a folder, click <strong>Mark batch complete</strong>. This writes your corrections to the validation CSV. The folder will not appear again in the dropdown once fully validated.</p>
@@ -244,7 +248,7 @@
 
 <div class="tab-label">Distribute</div>
 
-<p>The Distribute tab has two parts: packaging validation folders to send to volunteer validators, and collecting their corrections when they are returned.</p>
+<p>The Distribute tab handles packaging validation folders to send to volunteer validators, collecting their corrections when they are returned, and exporting your favourite (hearted) images by species.</p>
 
 <h3>Part A - Prepare packages for validators</h3>
 <p>Select your validation folder and click <strong>Prepare zip packages</strong>. wildtag creates one zip file per species folder containing the annotated images, the validation spreadsheet, the wildtag app, and instructions. Each zip goes into a <code>distribute\</code> folder next to your validation folder.</p>
@@ -254,7 +258,7 @@
 <div class="callout">Zips only include species folders that have unvalidated images. If everything is already validated, no zips are created.</div>
 
 <h3>What the volunteer does</h3>
-<div class="step"><div class="step-num">1</div><div class="step-body">Unzip the file and double-click <code>wildtag.bat</code></div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">Unzip the file and double-click <code>Run wildtag.bat</code></div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Click Browse in the Validate tab and select the unzipped folder</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">Review images, correct labels, click Mark batch complete</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body">Zip up the folder and return it</div></div>
@@ -269,6 +273,12 @@
 </ul>
 
 <div class="callout">The first time you click Merge, wildtag creates the <code>collect\</code> folder if it does not exist and tells you where to drop the zips.</div>
+
+<h3>Part C - Export favourite images</h3>
+<p>While validating you can mark standout images as favourites (the heart on each tile). The Distribute tab can then export these into a <code>favourites\</code> folder, organised into one subfolder per species, containing only the images you hearted. This is handy for pulling out the best shots of each species for reports or presentations.</p>
+
+<h3>Viewing detections on a map</h3>
+<p>If your images carry GPS metadata, or you have supplied deployment coordinates, the <strong>Summary</strong> tab has a <strong>Launch map</strong> button that opens an interactive map of your detection locations in your web browser. A dropdown on the map lets you colour sites by species. (In earlier versions this was a separate Map tab; it is now launched from Summary.)</p>
 
 <h2 id="csv">6. Understanding the CSV Output</h2>
 
@@ -334,8 +344,8 @@
 <p>Developed by Google. A complete end-to-end pipeline combining its own internal MegaDetector with a global species classifier and geofencing. Outputs taxonomy-aware predictions that roll up to family or order level when species-level confidence is insufficient.</p>
 <ul>
   <li>Architecture: EfficientNetV2-M classifier with internal MegaDetector</li>
-  <li>Classifier weight file: 224 MB</li>
-  <li>Best for: global surveys or when taxonomy-level rollup is needed</li>
+  <li>Classifier weight file: 224 MB (downloaded on demand on first use, not bundled)</li>
+  <li>Best for: global surveys or taxonomy-level rollup, <strong>on a machine with a GPU</strong> (very slow on CPU)</li>
 </ul>
 
 <div class="callout">For UK and European surveys, DeepFaune v1.4 with the GBR geofence is faster and well-calibrated for local species. SpeciesNet is better for international datasets or when you want taxonomy-level predictions such as "cervidae family" rather than a forced species-level guess.</div>
@@ -358,6 +368,6 @@
 </main>
 </div>
 
-<footer>wildtag.ai - Beta 1 - June 2026</footer>
+<footer>wildtag.ai - Version 1.1 - July 2026</footer>
 </body>
 </html>

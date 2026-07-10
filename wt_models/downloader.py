@@ -75,7 +75,8 @@ def ensure_pip_deps(
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "install",
                  dep, "--break-system-packages", "-q"],
-                capture_output=True, text=True)
+                capture_output=True, text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if result.returncode == 0:
                 log(f"  {dep}: installed successfully")
             else:

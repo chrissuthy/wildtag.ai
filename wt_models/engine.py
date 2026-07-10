@@ -38,6 +38,11 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+# On Windows, a subprocess launched from a windowless (pythonw) parent still
+# pops its own console window unless we suppress it. CREATE_NO_WINDOW does
+# that. It's Windows-only, so it's 0 (no-op) elsewhere.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 from wt_models.env_utils import inference_python
 from wt_models.downloader import ensure_model, model_dir
 
@@ -233,6 +238,7 @@ def run_pipeline(
                                         # dashes in progress bars); replace
                                         # them rather than crashing the reader
             bufsize=1,
+            creationflags=_NO_WINDOW,   # no console window (windowless app)
         )
 
         # Read the subprocess's output on a background thread so the main
