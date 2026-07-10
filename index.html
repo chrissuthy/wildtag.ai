@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wildtag.ai - User Manual</title>
+<style>
+  :root {
+    --canopy: #1B4332;
+    --forest: #2D6A4F;
+    --frost: #F0F4F1;
+    --border: #D4E4DA;
+    --text: #1a1a1a;
+    --muted: #5a6e63;
+    --accent: #40916C;
+    --warn: #b5451b;
+    --leaf: #52B788;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    color: var(--text);
+    background: #fff;
+  }
+  .cover {
+    background: var(--canopy);
+    color: #fff;
+    padding: 64px 60px 48px;
+  }
+  .cover p {
+    font-size: 17px;
+    color: #B7E4C7;
+    margin-top: 16px;
+    max-width: 560px;
+  }
+  .cover .meta {
+    margin-top: 28px;
+    font-size: 12px;
+    color: #74C69D;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .layout { display: flex; align-items: flex-start; }
+  nav {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 230px;
+    flex-shrink: 0;
+    background: var(--canopy);
+    padding: 28px 20px;
+    overflow-y: auto;
+  }
+  nav h2 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #74C69D;
+    margin-bottom: 14px;
+  }
+  nav ol { padding-left: 0; list-style: none; counter-reset: nav-counter; }
+  nav li { counter-increment: nav-counter; margin-bottom: 2px; }
+  nav a {
+    display: block;
+    color: #B7E4C7;
+    text-decoration: none;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    line-height: 1.4;
+  }
+  nav a::before { content: counter(nav-counter) ". "; color: #74C69D; font-size: 11px; }
+  nav a:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  main { flex: 1; max-width: 800px; padding: 48px 48px 80px; min-width: 0; }
+  h2 {
+    font-size: 24px; font-weight: 700; color: var(--canopy);
+    margin: 52px 0 14px; padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+  }
+  h2:first-child { margin-top: 0; }
+  h3 { font-size: 16px; font-weight: 600; color: var(--forest); margin: 26px 0 8px; }
+  p { margin-bottom: 14px; }
+  ul, ol { padding-left: 22px; margin-bottom: 14px; }
+  li { margin-bottom: 6px; }
+  .callout {
+    background: var(--frost); border-left: 4px solid var(--accent);
+    padding: 13px 16px; margin: 18px 0; border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-color: var(--warn); background: #FFF5F0; }
+  .step { display: flex; gap: 14px; margin: 10px 0; align-items: flex-start; }
+  .step-num {
+    flex-shrink: 0; width: 26px; height: 26px; background: var(--canopy);
+    color: #fff; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 12px; font-weight: 700; margin-top: 3px;
+  }
+  .step-body { flex: 1; }
+  .step-body strong { display: block; margin-bottom: 2px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; font-size: 13.5px; }
+  th { background: var(--canopy); color: #fff; text-align: left; padding: 9px 13px; font-weight: 600; }
+  td { padding: 8px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: var(--frost); }
+  code {
+    background: var(--frost); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px;
+    font-family: 'Courier New', monospace; font-size: 13px; color: var(--canopy);
+  }
+  .tab-label {
+    display: inline-block; background: var(--canopy); color: #fff;
+    border-radius: 4px; padding: 3px 10px; font-size: 12px; font-weight: 600; margin-bottom: 8px;
+  }
+  footer { background: var(--canopy); color: #74C69D; text-align: center; padding: 20px; font-size: 12px; }
+  @media (max-width: 700px) { .layout { flex-direction: column; } nav { position: static; width: 100%; height: auto; } }
+  @media print {
+    nav { display: none; }
+    .cover { page-break-after: always; }
+    h2 { page-break-before: always; }
+    h2:first-child { page-break-before: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div style="display:flex;align-items:center;gap:18px;margin-bottom:16px;">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAADtElEQVR4nO3asVEcURBF0UalYHDwMXFIQx5JIBuSkEcaOJj4OGSDDJUMVVElDR/R/XnnJMBnd9+dYZkqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABocNJ9gLd6fH546T7Dzq7ubrqP8Ok83d5vt6etDmz0a4z+4+wSgy0OafhrDL/P9BB86T7A3xj/GuPvdXZ9OfrzOzoAxr/G+GeYHIGxATD+NcY/y9QIjAyA8a8x/pkmRmBcAIx/jfHPNi0CowJg/GuMfw+TIjAmAMa/xvj3MiUCYwIAfLwRDymsXP3PTy9G/A6dplxNOK77QaGvnT98heHDui3/BDB+eB/tATh6+2/8f3L7v7fu9689AECfrb4DcPX/P177IurInVny+9J9BV/lDiBc97fQu9v99RMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAQh3dn350n2Gne3++p10H+Dx+eHQC3h+etF+5kl2/wBS9XR73/aZdgcAwdoDcPSKfvSO4bPrvHqwrvv9aw/AW4gAvI8tA1D1KwJCAGvG3D4a85qru5vuI3BQ9+1/1cZ3AMC6MQHw7701P7597z4CB0y4+lcNCkCVCKwSgT1MGX/VsABUicAqEZht0virBgagSgRWicBM08ZfNTQAVSKwSgRmmTj+qsEBqBKBVSIww9TxVw0PQJUIrBKBXpPHXzXoQaB/4WGhNR4W+jjTh//bFod8jRisEYP3t8voAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGCKn5wZtBt24Ht6AAAAAElFTkSuQmCC" width="68" height="68" alt="wildtag.ai logo">
+    <div style="font-family:Segoe UI,system-ui,sans-serif;font-size:40px;font-weight:300;color:#fff;letter-spacing:-1px;">wild<span style="font-weight:700;color:#74C69D;">tag</span><span style="color:#B7E4C7;">.ai</span></div>
+  </div>
+  <p>Automated species identification for camera trap images - powered by AI, designed for ecologists.</p>
+  <div class="meta">User Manual - Version 1.1 - July 2026</div>
+</div>
+
+<div class="layout">
+<nav>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:22px;">
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAADtElEQVR4nO3asVEcURBF0UalYHDwMXFIQx5JIBuSkEcaOJj4OGSDDJUMVVElDR/R/XnnJMBnd9+dYZkqAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABocNJ9gLd6fH546T7Dzq7ubrqP8Ok83d5vt6etDmz0a4z+4+wSgy0OafhrDL/P9BB86T7A3xj/GuPvdXZ9OfrzOzoAxr/G+GeYHIGxATD+NcY/y9QIjAyA8a8x/pkmRmBcAIx/jfHPNi0CowJg/GuMfw+TIjAmAMa/xvj3MiUCYwIAfLwRDymsXP3PTy9G/A6dplxNOK77QaGvnT98heHDui3/BDB+eB/tATh6+2/8f3L7v7fu9689AECfrb4DcPX/P177IurInVny+9J9BV/lDiBc97fQu9v99RMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQTAAgmABAMAGAYAIAwQQAggkABBMACCYAEEwAIJgAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAQh3dn350n2Gne3++p10H+Dx+eHQC3h+etF+5kl2/wBS9XR73/aZdgcAwdoDcPSKfvSO4bPrvHqwrvv9aw/AW4gAvI8tA1D1KwJCAGvG3D4a85qru5vuI3BQ9+1/1cZ3AMC6MQHw7701P7597z4CB0y4+lcNCkCVCKwSgT1MGX/VsABUicAqEZht0virBgagSgRWicBM08ZfNTQAVSKwSgRmmTj+qsEBqBKBVSIww9TxVw0PQJUIrBKBXpPHXzXoQaB/4WGhNR4W+jjTh//bFod8jRisEYP3t8voAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGCKn5wZtBt24Ht6AAAAAElFTkSuQmCC" width="32" height="32" alt="wildtag.ai">
+    <div style="font-family:Segoe UI,system-ui,sans-serif;font-size:15px;font-weight:300;color:#fff;">wild<span style="font-weight:700;color:#74C69D;">tag</span><span style="color:#B7E4C7;">.ai</span></div>
+  </div>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#run">Running the Pipeline</a></li>
+    <li><a href="#validate">Validating Results</a></li>
+    <li><a href="#distribute">Distributing and Collecting</a></li>
+    <li><a href="#csv">Understanding the CSV Output</a></li>
+    <li><a href="#gdpr">Privacy and GDPR</a></li>
+    <li><a href="#appendix-models">Appendix A: AI Models</a></li>
+    <li><a href="#appendix-geofence">Appendix B: Geographic Filtering</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h2 id="overview">1. Overview</h2>
+
+<p>wildtag.ai processes folders of camera trap images automatically - detecting animals, classifying species, and organising results for review. It runs on your computer and needs no internet connection for everyday use with the bundled DeepFaune model. An internet connection is used only to download the installer and, optionally, the SpeciesNet model the first time it is chosen.</p>
+
+<p>The workflow has four stages:</p>
+
+<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Run</strong> Point wildtag at an image folder, choose a model, and let it detect and classify everything.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><strong>Validate</strong> Browse AI predictions as a gallery, correct any mistakes, and mark batches as complete.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><strong>Distribute</strong> Package species folders as zips for volunteer validators, and collect their corrections when returned.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body"><strong>Summary</strong> Review detection statistics and a species breakdown for your survey.</div></div>
+
+<h2 id="getting-started">2. Getting Started</h2>
+
+<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Download the installer</strong> Download <code>wildtag_installer.zip</code> from the link provided (about 1.8 GB, use wifi). Right-click it and select "Extract All". Inside are <code>wildtag_Setup.exe</code> and a <code>.bin</code> file; keep them together.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body"><strong>Install and launch</strong> Double-click <code>wildtag_Setup.exe</code> and follow the wizard (no administrator rights needed). It creates a desktop and Start Menu shortcut. Launch wildtag from the shortcut; it opens directly with no console window. If Windows shows a security warning, click "More info" then "Run anyway" - this is normal for software that is not yet code-signed.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><strong>Organise your images</strong> wildtag works on a folder of JPEGs. Subfolders are supported - all images are found automatically. Each run should correspond to one survey site or session.</div></div>
+
+<div class="callout">
+  wildtag never modifies your original images. All outputs are written to new files in a <code>validation\</code> subfolder.
+</div>
+
+<h2 id="run">3. Running the Pipeline</h2>
+
+<div class="tab-label">Run wildtag</div>
+
+<h3>Select your image folder</h3>
+<p>Click Browse and navigate to your camera trap image folder. wildtag counts all JPEG images found inside, including subfolders.</p>
+
+<h3>Choose a detector and classifier</h3>
+<table>
+  <tr><th>Setting</th><th>Recommended choice</th></tr>
+  <tr><td>Detector</td><td>MegaDetector v5a - the global standard for camera trap animal detection</td></tr>
+  <tr><td>Classifier</td><td>DeepFaune v1.4 for European surveys; SpeciesNet Global for broader geographic coverage</td></tr>
+</table>
+
+<div class="callout">When SpeciesNet is selected it runs its own internal detector. The MegaDetector setting is ignored.</div>
+<div class="callout">DeepFaune is included and ready to use. <strong>SpeciesNet is not bundled</strong>: the first time you select it, wildtag offers to download its model files (about 500 MB, one time only).</div>
+<div class="callout warn"><strong>SpeciesNet needs a GPU to be practical.</strong> On a computer without a graphics card it is very slow, often 10 or more seconds per image, so a large project could take many hours. wildtag warns you and offers DeepFaune instead when you pick SpeciesNet on a machine with no GPU. For UK and European wildlife, DeepFaune is the recommended choice.</div>
+
+<h3>Set confidence thresholds</h3>
+<ul>
+  <li><strong>Detection threshold</strong> - images where no detection exceeds this value are recorded as <code>empty</code>. Default: 0.1.</li>
+  <li><strong>Species confidence</strong> - detections below this threshold are labelled <code>low_confidence</code>. Default: 0.6. Lower this to see more predictions; raise it for stricter results.</li>
+</ul>
+
+<h3>Geographic filter</h3>
+<p>Select a region to filter out implausible species predictions. For UK surveys, select GBR. This removes predictions like wolverine or raccoon and replaces them with the next most plausible UK species. Select None to use raw model predictions.</p>
+
+<h3>Performance options</h3>
+<ul>
+  <li><strong>Processing device</strong> - CPU is always available. NVIDIA GPU (CUDA) appears automatically if detected and dramatically speeds up classification.</li>
+  <li><strong>CPU threads</strong> - defaults to one less than your total CPU count, leaving one core free for the rest of your computer.</li>
+</ul>
+
+<h3>Output options</h3>
+<ul>
+  <li><strong>Generate IDs</strong> - adds unique <code>image_id</code> and <code>detection_id</code> columns to the CSV.</li>
+  <li><strong>Prepare validation folder</strong> - creates downscaled annotated images organised by species, ready for the Validate tab.</li>
+</ul>
+
+<h3>Running</h3>
+<p>Click Run wildtag. The log panel shows live progress. With DeepFaune, a few dozen images take a couple of minutes on CPU. SpeciesNet is much slower on CPU (often 10+ seconds per image) because it runs a full detector, classifier, and geolocation pipeline on every image; it is best run on a GPU.</p>
+<div class="callout">If a run is interrupted (for example the computer restarts partway through sorting images into species folders), wildtag can recover. When you reopen the project it detects the incomplete validation folder and offers to finish it, keeping the images already sorted and only completing what is missing.</div>
+
+<h2 id="validate">4. Validating Results</h2>
+
+<div class="tab-label">Validate</div>
+
+<p>Validation is where you review AI predictions and correct any errors. wildtag presents images as a gallery, one species folder at a time.</p>
+
+<h3>Opening a validation folder</h3>
+<p>Click Browse and select your project folder or the <code>validation\</code> folder inside it - wildtag finds it automatically. The species dropdown shows only folders with images still needing review.</p>
+
+<h3>Reviewing images</h3>
+<p>Images appear in a grid with the AI confidence score below each one and a bounding box drawn around the detected animal. Click any image to open the correction dialog.</p>
+<ul>
+  <li>If the label is correct, click <strong>Correct</strong></li>
+  <li>If wrong, select the right species from the dropdown and click <strong>Apply correction</strong></li>
+</ul>
+
+<p>The correction dropdown is ordered: <em>unidentifiable</em> first, then species alphabetically, then broad groups such as mustelid or lagomorph, then special labels.</p>
+<p>If the species you need is not listed, use the <strong>"Not listed? Add a label"</strong> box in the correction dialog to add it. New labels are saved to <code>validation/custom_species.txt</code> in the project, stay available for the rest of the project, and are included in volunteer packages so everyone sees the same options.</p>
+
+<h3>Completing a batch</h3>
+<p>Once you have reviewed all images in a folder, click <strong>Mark batch complete</strong>. This writes your corrections to the validation CSV. The folder will not appear again in the dropdown once fully validated.</p>
+
+<div class="callout warn">Images containing humans are automatically pixelated in the validation folder. Original images are never modified.</div>
+
+<h3>How validation updates the master CSV</h3>
+<p>As you validate, wildtag writes corrections to <code>validation.csv</code> files inside each species folder. When you distribute or export, these corrections are merged into the master <code>results_with_ids.csv</code>, populating the <code>correct_label</code> and <code>human_verified</code> columns. Your master CSV always reflects your latest validation work.</p>
+
+<h2 id="distribute">5. Distributing and Collecting</h2>
+
+<div class="tab-label">Distribute</div>
+
+<p>The Distribute tab handles packaging validation folders to send to volunteer validators, collecting their corrections when they are returned, and exporting your favourite (hearted) images by species.</p>
+
+<h3>Part A - Prepare packages for validators</h3>
+<p>Select your validation folder and click <strong>Prepare zip packages</strong>. wildtag creates one zip file per species folder containing the annotated images, the validation spreadsheet, the wildtag app, and instructions. Each zip goes into a <code>distribute\</code> folder next to your validation folder.</p>
+
+<p>Send the relevant zip to each volunteer. You might assign one species to each person, or send multiple zips to the same person for different species.</p>
+
+<div class="callout">Zips only include species folders that have unvalidated images. If everything is already validated, no zips are created.</div>
+
+<h3>What the volunteer does</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">Unzip the file and double-click <code>Run wildtag.bat</code></div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Click Browse in the Validate tab and select the unzipped folder</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Review images, correct labels, click Mark batch complete</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Zip up the folder and return it</div></div>
+
+<h3>Part B - Collect returned validated zips</h3>
+<p>When validators return their zips, drop them into the <code>collect\</code> folder inside your project folder. Then click <strong>Merge all returned validations</strong>. wildtag will:</p>
+<ul>
+  <li>Show you a preview of all corrections across all returned zips</li>
+  <li>Ask you to confirm before merging</li>
+  <li>Update your master validation CSVs and <code>results_with_ids.csv</code></li>
+  <li>Move processed zips to <code>collect\processed\</code> so you know what has been handled</li>
+</ul>
+
+<div class="callout">The first time you click Merge, wildtag creates the <code>collect\</code> folder if it does not exist and tells you where to drop the zips.</div>
+
+<h3>Part C - Export favourite images</h3>
+<p>While validating you can mark standout images as favourites (the heart on each tile). The Distribute tab can then export these into a <code>favourites\</code> folder, organised into one subfolder per species, containing only the images you hearted. This is handy for pulling out the best shots of each species for reports or presentations.</p>
+
+<h3>Viewing detections on a map</h3>
+<p>If your images carry GPS metadata, or you have supplied deployment coordinates, the <strong>Summary</strong> tab has a <strong>Launch map</strong> button that opens an interactive map of your detection locations in your web browser. A dropdown on the map lets you colour sites by species. (In earlier versions this was a separate Map tab; it is now launched from Summary.)</p>
+
+<h2 id="csv">6. Understanding the CSV Output</h2>
+
+<p>wildtag produces a CSV with one row per detection - not one row per image. An image with two animals produces two rows; an empty image produces one row with <code>NA</code> for species fields.</p>
+
+<h3>Core columns</h3>
+<table>
+  <tr><th>Column</th><th>Description</th></tr>
+  <tr><td><code>image_id</code></td><td>Unique identifier for the source image. Consistent across runs on the same image.</td></tr>
+  <tr><td><code>detection_id</code></td><td>Unique identifier for this specific detection.</td></tr>
+  <tr><td><code>relative_path</code></td><td>Path to the image relative to the survey folder root.</td></tr>
+  <tr><td><code>label</code></td><td>Final species label: <code>empty</code>, <code>human</code>, <code>vehicle</code>, <code>low_confidence</code>, or a species name.</td></tr>
+  <tr><td><code>confidence</code></td><td>Classifier confidence score (0-1). <code>NA</code> for empty images.</td></tr>
+  <tr><td><code>correct_label</code></td><td>Correction entered during validation. Empty if the AI label was accepted.</td></tr>
+  <tr><td><code>human_verified</code></td><td><code>TRUE</code> once a detection has been reviewed in the Validate tab.</td></tr>
+</table>
+
+<h3>Detection detail columns</h3>
+<table>
+  <tr><th>Column</th><th>Description</th></tr>
+  <tr><td><code>detector_label</code></td><td>What the detector found: <code>animal</code>, <code>human</code>, or <code>vehicle</code>.</td></tr>
+  <tr><td><code>detector_confidence</code></td><td>Detector confidence score.</td></tr>
+  <tr><td><code>cv_label</code></td><td>Raw species label from the classifier before geofencing or thresholding.</td></tr>
+  <tr><td><code>cv_confidence</code></td><td>Classifier confidence for <code>cv_label</code>.</td></tr>
+  <tr><td><code>cv_model</code></td><td>Name of the classifier used, e.g. <code>deepfaune-v1.4</code>.</td></tr>
+  <tr><td><code>bbox_left</code>, <code>bbox_top</code>, <code>bbox_right</code>, <code>bbox_bottom</code></td><td>Bounding box coordinates. Normalised (0-1) when <code>bbox_normalised = 1</code>.</td></tr>
+</table>
+
+<h3>EXIF columns</h3>
+<p>wildtag automatically extracts camera metadata including <code>DateTimeOriginal</code>, <code>Make</code>, <code>Model</code>, GPS coordinates, <code>ExposureTime</code>, and <code>ISOSpeedRatings</code>.</p>
+
+<div class="callout">For analysis, use <code>correct_label</code> where populated, falling back to <code>label</code> where not. This gives the best available identification for every detection.</div>
+
+<h2 id="gdpr">7. Privacy and GDPR</h2>
+
+<p>Camera traps occasionally capture people. wildtag handles this in two ways:</p>
+<ul>
+  <li><strong>Detection labelling</strong> - MegaDetector identifies humans and vehicles separately from animals, labelled <code>human</code> or <code>vehicle</code> in the CSV.</li>
+  <li><strong>Automatic pixelation</strong> - validation copies of human detections are heavily pixelated. Faces and bodies are unrecognisable. Original images are never modified.</li>
+</ul>
+
+<div class="callout warn">wildtag pixelates validation copies only. Original images remain unmodified and you remain responsible for their storage and access controls under applicable data protection law.</div>
+
+<h2 id="appendix-models">Appendix A: AI Models</h2>
+
+<h3>MegaDetector v5a</h3>
+<p>Developed by Microsoft AI for Earth. A YOLOv5-based detector trained on millions of camera trap images worldwide. Identifies three categories: animal, human, and vehicle, with bounding boxes. Does not identify species.</p>
+<ul>
+  <li>Architecture: YOLOv5x, 140M parameters, 1280px input</li>
+  <li>Weight file: 280 MB</li>
+</ul>
+
+<h3>DeepFaune v1.4</h3>
+<p>Developed by CNRS (France). A vision transformer classifier trained on European camera trap images. Classifies animal crops into 38 classes covering the full range of European wildlife.</p>
+<ul>
+  <li>Architecture: ViT-Large with DINOv2 backbone, 182px crop</li>
+  <li>Classes: 38 including domestic animals and birds as a group</li>
+  <li>Weight file: 1.1 GB</li>
+  <li>Best for: European surveys, ungulates and carnivores</li>
+</ul>
+
+<h3>SpeciesNet Global (Google, v4.0.3a)</h3>
+<p>Developed by Google. A complete end-to-end pipeline combining its own internal MegaDetector with a global species classifier and geofencing. Outputs taxonomy-aware predictions that roll up to family or order level when species-level confidence is insufficient.</p>
+<ul>
+  <li>Architecture: EfficientNetV2-M classifier with internal MegaDetector</li>
+  <li>Classifier weight file: 224 MB (downloaded on demand on first use, not bundled)</li>
+  <li>Best for: global surveys or taxonomy-level rollup, <strong>on a machine with a GPU</strong> (very slow on CPU)</li>
+</ul>
+
+<div class="callout">For UK and European surveys, DeepFaune v1.4 with the GBR geofence is faster and well-calibrated for local species. SpeciesNet is better for international datasets or when you want taxonomy-level predictions such as "cervidae family" rather than a forced species-level guess.</div>
+
+<h2 id="appendix-geofence">Appendix B: Geographic Filtering</h2>
+
+<p>The geographic filter reduces false positives by removing species predictions that are implausible for your study region. When GBR is selected, wildtag checks each prediction against a curated list of UK species. If the top prediction is not on the list, wildtag uses the next most confident plausible prediction instead.</p>
+
+<h3>UK species list includes</h3>
+<ul>
+  <li><strong>Deer:</strong> red deer, roe deer, fallow deer, sika deer, Chinese water deer, muntjac</li>
+  <li><strong>Carnivores:</strong> red fox, badger, otter, stoat, weasel, polecat, pine marten, mink, wildcat</li>
+  <li><strong>Rodents:</strong> red squirrel, grey squirrel, water vole, bank vole, field vole, wood mouse, dormouse, brown rat</li>
+  <li><strong>Lagomorphs:</strong> rabbit, brown hare, mountain hare</li>
+  <li><strong>Other:</strong> hedgehog, mole, wild boar, all shrews, domestic livestock, dog, cat, bird</li>
+</ul>
+
+<p>Broad group labels such as mustelid, lagomorph, and bird always pass the geofence since they are plausible anywhere. Select None to disable geofencing entirely.</p>
+
+</main>
+</div>
+
+<footer>wildtag.ai - Version 1.1 - July 2026</footer>
+</body>
+</html>
