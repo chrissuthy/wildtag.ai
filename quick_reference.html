@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wildtag.ai - Quick Reference</title>
+<style>
+  :root {
+    --canopy: #1B4332;
+    --forest: #2D6A4F;
+    --frost: #F0F4F1;
+    --border: #D4E4DA;
+    --text: #1a1a1a;
+    --muted: #5a6e63;
+    --accent: #40916C;
+    --warn: #b5451b;
+    --leaf: #52B788;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 13.5px; line-height: 1.55; color: var(--text); background: #fff;
+  }
+  .cover { background: var(--canopy); color: #fff; padding: 40px 48px 32px; }
+  .cover h1 { font-size: 30px; font-weight: 700; }
+  .cover p { font-size: 15px; color: #B7E4C7; margin-top: 10px; max-width: 620px; }
+  .cover .meta {
+    margin-top: 18px; font-size: 11px; color: #74C69D;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 32px 40px 60px; }
+  h2 {
+    font-size: 18px; font-weight: 700; color: var(--canopy);
+    margin: 30px 0 12px; padding-bottom: 7px; border-bottom: 2px solid var(--border);
+  }
+  h2:first-child { margin-top: 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+    background: #fff; break-inside: avoid;
+  }
+  .card h3 {
+    font-size: 14px; font-weight: 700; color: var(--forest);
+    margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .num {
+    flex-shrink: 0; width: 22px; height: 22px; background: var(--canopy);
+    color: #fff; border-radius: 50%; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 700;
+  }
+  ul { padding-left: 18px; margin: 4px 0; }
+  li { margin-bottom: 4px; }
+  p { margin-bottom: 8px; }
+  .tab-label {
+    display: inline-block; background: var(--canopy); color: #fff;
+    border-radius: 4px; padding: 2px 9px; font-size: 11px; font-weight: 600;
+    margin-bottom: 6px;
+  }
+  code {
+    background: var(--frost); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 5px; font-family: 'Courier New', monospace; font-size: 12px; color: var(--canopy);
+  }
+  .kbd {
+    background: #fff; border: 1px solid var(--muted); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 6px; font-family: 'Courier New', monospace;
+    font-size: 12px; font-weight: 700;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 12.5px; }
+  th { background: var(--canopy); color: #fff; text-align: left; padding: 6px 10px; }
+  td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: var(--frost); }
+  .callout {
+    background: var(--frost); border-left: 4px solid var(--accent);
+    padding: 10px 14px; margin: 10px 0; border-radius: 0 6px 6px 0; font-size: 12.5px;
+  }
+  .callout.warn { border-color: var(--warn); background: #FFF5F0; }
+  footer { background: var(--canopy); color: #74C69D; text-align: center; padding: 16px; font-size: 11px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  @media print {
+    .cover { padding: 24px 32px; }
+    h2 { page-break-after: avoid; }
+    .card { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>wildtag.ai - Quick Reference</h1>
+  <p>A one-page summary of the workflow, tabs, and options. For full detail, see the User Manual.</p>
+  <div class="meta">Version 1.2 &nbsp;&middot;&nbsp; July 2026</div>
+</div>
+
+<main>
+
+<h2>The workflow, start to finish</h2>
+<div class="grid">
+  <div class="card">
+    <h3><span class="num">1</span> Install</h3>
+    <p>Unzip the installer, run <code>wildtag_Setup.exe</code>, launch from the shortcut. No admin rights needed. On a security warning: More info &rarr; Run anyway.</p>
+  </div>
+  <div class="card">
+    <h3><span class="num">2</span> Download a model</h3>
+    <p>Open the <strong>Models</strong> tab and click <strong>Download</strong> on a model while online (DeepFaune recommended). One time only; runs offline afterwards.</p>
+  </div>
+  <div class="card">
+    <h3><span class="num">3</span> Run</h3>
+    <p><strong>Run</strong> tab: Browse to your image folder, pick the model, click <strong>Run wildtag</strong>.</p>
+  </div>
+  <div class="card">
+    <h3><span class="num">4</span> Validate</h3>
+    <p><strong>Validate</strong> tab: review predictions species by species, correct errors, <strong>Mark batch complete</strong>.</p>
+  </div>
+  <div class="card">
+    <h3><span class="num">5</span> Distribute &amp; collect</h3>
+    <p><strong>Distribute</strong> tab: <strong>Prepare zip packages</strong> for volunteers; drop returned zips in <code>collect\</code> and <strong>Merge</strong>.</p>
+  </div>
+  <div class="card">
+    <h3><span class="num">6</span> Export &amp; review</h3>
+    <p><strong>Distribute</strong>: <strong>Export Camtrap DP</strong> and favourites. <strong>Summary</strong>: stats, species counts, map.</p>
+  </div>
+</div>
+
+<h2>Tabs at a glance</h2>
+<div class="grid">
+  <div class="card">
+    <div class="tab-label">Models</div>
+    <ul>
+      <li><strong>Download</strong> / <strong>Remove</strong> a model per card</li>
+      <li>Status: Not installed / Installed / Planned</li>
+      <li>Needs internet once; offline after</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="tab-label">Run wildtag</div>
+    <ul>
+      <li><strong>Browse</strong> image folder</li>
+      <li>Pick <strong>Species identification model</strong></li>
+      <li><strong>Run wildtag</strong> / <strong>Stop</strong> (resumes if interrupted)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="tab-label">Validate</div>
+    <ul>
+      <li>Click an image to flag / correct it</li>
+      <li><span class="kbd">Ctrl</span>+click = select several, correct together</li>
+      <li><strong>Mark batch complete</strong> when done</li>
+      <li><strong>Repair folders</strong> fixes "image not found"</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="tab-label">Distribute</div>
+    <ul>
+      <li><strong>Prepare zip packages</strong> (never sends an image twice)</li>
+      <li><strong>Merge</strong> returned zips from <code>collect\</code></li>
+      <li><strong>Export Camtrap DP</strong> / favourites</li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="tab-label">Summary</div>
+    <ul>
+      <li>What was processed; validation progress</li>
+      <li>Detections per species; confusion matrix</li>
+      <li>File locations; <strong>Launch map</strong></li>
+    </ul>
+  </div>
+  <div class="card">
+    <div class="tab-label">Models to choose</div>
+    <ul>
+      <li><strong>DeepFaune v1.4</strong> - UK/Europe, fast, offline (~1.1 GB)</li>
+      <li><strong>SpeciesNet</strong> - global, needs a GPU (slow on CPU)</li>
+    </ul>
+  </div>
+</div>
+
+<h2>Run tab options</h2>
+<table>
+  <tr><th>Option</th><th>What it does</th><th>Typical</th></tr>
+  <tr><td>Detection threshold</td><td>Below this, an image is <code>empty</code></td><td>0.1</td></tr>
+  <tr><td>Species confidence</td><td>Below this, labelled <code>low_confidence</code></td><td>0.6</td></tr>
+  <tr><td>Geographic filter</td><td>Drops implausible species for the region</td><td>GBR (UK)</td></tr>
+  <tr><td>Processing device</td><td>CPU always; NVIDIA GPU if detected (much faster)</td><td>Auto</td></tr>
+  <tr><td>Checkpoint frequency</td><td>How often progress is saved for resume</td><td>Default</td></tr>
+  <tr><td>Validation image quality</td><td>Size of downscaled review images</td><td>Default</td></tr>
+</table>
+
+<h2>Handy to know</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Validation shortcuts</h3>
+    <ul>
+      <li><span class="kbd">Ctrl</span>+click tiles to multi-select, then correct all at once</li>
+      <li>Press <span class="kbd">E</span> to change contrast on an open image</li>
+      <li>Heart a tile to mark it a favourite for later export</li>
+      <li>Humans are auto-pixelated; originals never changed</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Deployment metadata</h3>
+    <p>For the map and Camtrap DP export, add a <code>deployment.csv</code> (one row per site: name, lat, long, start and retrieval dates). Use <strong>Save deployment.csv template</strong> to start one.</p>
+  </div>
+</div>
+
+<h2>Troubleshooting</h2>
+<div class="callout">Run tab dropdown empty? No model is downloaded yet - open <strong>Models</strong> and download one while online.</div>
+<div class="callout">Tiles show "Image not found"? The folder self-repairs on open; or click <strong>Repair folders</strong>. Nothing is lost.</div>
+<div class="callout warn">SpeciesNet very slow? Expected without a GPU (10+ sec/image). Use DeepFaune for UK/European wildlife.</div>
+<div class="callout">Run interrupted? Reopen the project - wildtag offers to finish where it left off.</div>
+
+</main>
+
+<footer>wildtag.ai Quick Reference &middot; see wildtag_manual for full documentation &middot; css6@st-andrews.ac.uk</footer>
+
+</body>
+</html>

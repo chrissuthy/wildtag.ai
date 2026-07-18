@@ -109,6 +109,43 @@ REGISTRY = [
             "across all continents."
         ),
     },
+
+    # ── Planned models (shown on the Models screen as "Planned - not yet
+    #    available"; excluded from the Run dropdown; no weights fetched) ──
+    {
+        "id":           "deepfaune-uk",
+        "name":         "DeepFaune-UK (planned)",
+        "type":         "classifier",
+        "regions":      ["UK"],
+        "architecture": "ViT-L DINOv2 (UK-trained)",
+        "license":      "TBD",
+        "available":    False,
+        "description":  "A UK-tuned classifier, in development from the "
+                        "DeepFaune-Europe backbone. Not yet available.",
+    },
+    {
+        "id":           "deepfaune-new-england",
+        "name":         "DeepFaune New England (planned)",
+        "type":         "classifier",
+        "regions":      ["North America (New England)"],
+        "architecture": "DeepFaune-derived",
+        "license":      "see USGS release",
+        "available":    False,
+        "description":  "North-eastern US fauna classifier "
+                        "(code.usgs.gov/vtcfwru/deepfaune-new-england). "
+                        "Not yet integrated.",
+    },
+    {
+        "id":           "deepfauna-subsa",
+        "name":         "DeepFauna Sub-Saharan Africa (planned)",
+        "type":         "classifier",
+        "regions":      ["Sub-Saharan Africa"],
+        "architecture": "ONNX classifier",
+        "license":      "CC-BY-NC (verify)",
+        "available":    False,
+        "description":  "Sub-Saharan African fauna classifier "
+                        "(Zenodo 21205747). Not yet integrated.",
+    },
 ]
 
 # ── Lookup helpers ─────────────────────────────────────────────────────────────

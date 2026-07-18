@@ -141,9 +141,11 @@
   <ol>
     <li><a href="#overview">Overview</a></li>
     <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#models">Models</a></li>
     <li><a href="#run">Running the Pipeline</a></li>
     <li><a href="#validate">Validating Results</a></li>
     <li><a href="#distribute">Distributing and Collecting</a></li>
+    <li><a href="#summary">Summary</a></li>
     <li><a href="#csv">Understanding the CSV Output</a></li>
     <li><a href="#gdpr">Privacy and GDPR</a></li>
     <li><a href="#appendix-models">Appendix A: AI Models</a></li>
@@ -155,7 +157,7 @@
 
 <h2 id="overview">1. Overview</h2>
 
-<p>wildtag.ai processes folders of camera trap images automatically - detecting animals, classifying species, and organising results for review. It runs on your computer and needs no internet connection for everyday use with the bundled DeepFaune model. An internet connection is used only to download the installer and, optionally, the SpeciesNet model the first time it is chosen.</p>
+<p>wildtag.ai processes folders of camera trap images automatically - detecting animals, classifying species, and organising results for review. It runs on your computer. wildtag ships without a model built in: you download the one you want from the Models tab the first time you use it, while connected to the internet. After a model is downloaded it is stored locally and works fully offline. DeepFaune is the recommended model for UK and European wildlife.</p>
 
 <p>The workflow has four stages:</p>
 
@@ -166,30 +168,56 @@
 
 <h2 id="getting-started">2. Getting Started</h2>
 
-<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Download the installer</strong> Download <code>wildtag_installer.zip</code> from the link provided (about 1.8 GB, use wifi). Right-click it and select "Extract All". Inside are <code>wildtag_Setup.exe</code> and a <code>.bin</code> file; keep them together.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body"><strong>Download the installer</strong> Download <code>wildtag_installer.zip</code> from the link provided. Right-click it and select "Extract All". Inside are <code>wildtag_Setup.exe</code> and a <code>.bin</code> file; keep them together.</div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body"><strong>Install and launch</strong> Double-click <code>wildtag_Setup.exe</code> and follow the wizard (no administrator rights needed). It creates a desktop and Start Menu shortcut. Launch wildtag from the shortcut; it opens directly with no console window. If Windows shows a security warning, click "More info" then "Run anyway" - this is normal for software that is not yet code-signed.</div></div>
-<div class="step"><div class="step-num">3</div><div class="step-body"><strong>Organise your images</strong> wildtag works on a folder of JPEGs. Subfolders are supported - all images are found automatically. Each run should correspond to one survey site or session.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body"><strong>Download a model</strong> Open the Models tab. While connected to the internet, click Download next to the model you want (DeepFaune is recommended for UK and European wildlife). This is a one-time download; the model is then stored on your computer and used offline afterwards.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body"><strong>Organise your images</strong> wildtag works on a folder of JPEGs. Subfolders are supported - all images are found automatically. Each run should correspond to one survey site or session.</div></div>
 
 <div class="callout">
   wildtag never modifies your original images. All outputs are written to new files in a <code>validation\</code> subfolder.
 </div>
 
-<h2 id="run">3. Running the Pipeline</h2>
+<h2 id="models">3. Models</h2>
+
+<div class="tab-label">Models</div>
+
+<p>wildtag does not come with a species model built in. The Models tab is where you download the model you want, once, while connected to the internet. After a model is downloaded it is stored on your computer and used offline from then on. Downloading a model is the first thing to do after installing wildtag.</p>
+
+<h3>What the Models tab shows</h3>
+<p>Each model is listed as a card giving its region, size, licence, and a short description, along with its current status:</p>
+<table>
+  <tr><th>Status</th><th>Meaning</th></tr>
+  <tr><td>Not installed</td><td>Available to download. Click <strong>Download</strong> to fetch it.</td></tr>
+  <tr><td>Installed</td><td>Already on this computer and ready to use offline. A <strong>Remove</strong> button frees the disk space if you no longer need it.</td></tr>
+  <tr><td>Planned</td><td>In development, not yet available. Shown for information only; it cannot be downloaded and does not appear in the Run tab.</td></tr>
+</table>
+
+<h3>Downloading a model</h3>
+<p>Click <strong>Download</strong> on the model you want. wildtag confirms the size, then downloads it with progress shown on the card. DeepFaune is about 1.1 GB and SpeciesNet about 500 MB, so allow a few minutes on a normal connection. When it finishes, the status changes to Installed.</p>
+
+<div class="callout">You only need an internet connection for this one-time download. Once a model shows as Installed it runs completely offline, so wildtag can be used in the field with no connection.</div>
+
+<div class="callout warn">If the Run tab's model dropdown is empty, it means no model has been downloaded yet. Open the Models tab and download one first.</div>
+
+<h3>Which model to choose</h3>
+<p>For UK and European wildlife, download <strong>DeepFaune v1.4</strong>. It is fast on any computer, works offline, and is well-calibrated for local species. Choose <strong>SpeciesNet</strong> only if you need worldwide coverage and have a graphics card (GPU); it is very slow on a computer without one. See Appendix A for details of each model.</p>
+
+<h2 id="run">4. Running the Pipeline</h2>
 
 <div class="tab-label">Run wildtag</div>
 
 <h3>Select your image folder</h3>
 <p>Click Browse and navigate to your camera trap image folder. wildtag counts all JPEG images found inside, including subfolders.</p>
 
-<h3>Choose a detector and classifier</h3>
+<h3>Choose a model</h3>
+<p>Select a species model from the dropdown. Each model brings its own animal detector, so there is no separate detector to choose. Only models you have downloaded on the Models tab appear here; if the dropdown is empty, download a model first.</p>
 <table>
-  <tr><th>Setting</th><th>Recommended choice</th></tr>
-  <tr><td>Detector</td><td>MegaDetector v5a - the global standard for camera trap animal detection</td></tr>
-  <tr><td>Classifier</td><td>DeepFaune v1.4 for European surveys; SpeciesNet Global for broader geographic coverage</td></tr>
+  <tr><th>Model</th><th>Best for</th></tr>
+  <tr><td>DeepFaune v1.4</td><td>UK and European surveys (recommended); fast on any computer</td></tr>
+  <tr><td>SpeciesNet Global</td><td>Worldwide coverage or taxonomy-level rollup; needs a GPU to be practical</td></tr>
 </table>
 
-<div class="callout">When SpeciesNet is selected it runs its own internal detector. The MegaDetector setting is ignored.</div>
-<div class="callout">DeepFaune is included and ready to use. <strong>SpeciesNet is not bundled</strong>: the first time you select it, wildtag offers to download its model files (about 500 MB, one time only).</div>
+<div class="callout">Models are not bundled with wildtag. You download the one you want from the Models tab the first time you use it (DeepFaune about 1.1 GB, SpeciesNet about 500 MB), after which it works offline. Models marked "Planned" on the Models tab are in development and cannot yet be downloaded.</div>
 <div class="callout warn"><strong>SpeciesNet needs a GPU to be practical.</strong> On a computer without a graphics card it is very slow, often 10 or more seconds per image, so a large project could take many hours. wildtag warns you and offers DeepFaune instead when you pick SpeciesNet on a machine with no GPU. For UK and European wildlife, DeepFaune is the recommended choice.</div>
 
 <h3>Set confidence thresholds</h3>
@@ -205,19 +233,21 @@
 <ul>
   <li><strong>Processing device</strong> - CPU is always available. NVIDIA GPU (CUDA) appears automatically if detected and dramatically speeds up classification.</li>
   <li><strong>CPU threads</strong> - defaults to one less than your total CPU count, leaving one core free for the rest of your computer.</li>
+  <li><strong>Checkpoint frequency</strong> - how often wildtag saves its progress during a run. If a long run is interrupted, it resumes from the last checkpoint rather than starting over. The default suits most projects; there is rarely a need to change it.</li>
 </ul>
 
 <h3>Output options</h3>
 <ul>
   <li><strong>Generate IDs</strong> - adds unique <code>image_id</code> and <code>detection_id</code> columns to the CSV.</li>
   <li><strong>Prepare validation folder</strong> - creates downscaled annotated images organised by species, ready for the Validate tab.</li>
+  <li><strong>Validation image quality</strong> - sets how large the downscaled validation images are. Higher quality makes review easier but produces larger files and bigger volunteer packages; lower quality is faster to make and send. The default is a good balance for most surveys.</li>
 </ul>
 
 <h3>Running</h3>
 <p>Click Run wildtag. The log panel shows live progress. With DeepFaune, a few dozen images take a couple of minutes on CPU. SpeciesNet is much slower on CPU (often 10+ seconds per image) because it runs a full detector, classifier, and geolocation pipeline on every image; it is best run on a GPU.</p>
 <div class="callout">If a run is interrupted (for example the computer restarts partway through sorting images into species folders), wildtag can recover. When you reopen the project it detects the incomplete validation folder and offers to finish it, keeping the images already sorted and only completing what is missing.</div>
 
-<h2 id="validate">4. Validating Results</h2>
+<h2 id="validate">5. Validating Results</h2>
 
 <div class="tab-label">Validate</div>
 
@@ -232,6 +262,7 @@
   <li>If the label is correct, click <strong>Correct</strong></li>
   <li>If wrong, select the right species from the dropdown and click <strong>Apply correction</strong></li>
 </ul>
+<p>To correct several images at once, hold <strong>Ctrl</strong> and click each one; selected tiles are highlighted in blue. Then click any selected tile to apply a single correction to them all together. This is much faster when a whole batch shares the same error.</p>
 
 <p>The correction dropdown is ordered: <em>unidentifiable</em> first, then species alphabetically, then broad groups such as mustelid or lagomorph, then special labels.</p>
 <p>If the species you need is not listed, use the <strong>"Not listed? Add a label"</strong> box in the correction dialog to add it. New labels are saved to <code>validation/custom_species.txt</code> in the project, stay available for the rest of the project, and are included in volunteer packages so everyone sees the same options.</p>
@@ -241,10 +272,13 @@
 
 <div class="callout warn">Images containing humans are automatically pixelated in the validation folder. Original images are never modified.</div>
 
+<h3>Repairing a validation folder</h3>
+<p>If any tiles show "Image not found", the folder's image list has got out of step with the images actually present (this can happen with folders made by older versions of wildtag). wildtag repairs this automatically whenever a validation folder is opened, and a <strong>Repair folders</strong> button on the Validate tab does the same on demand. The repair is safe: it never deletes images or loses validation work, and it keeps a backup of the original list.</p>
+
 <h3>How validation updates the master CSV</h3>
 <p>As you validate, wildtag writes corrections to <code>validation.csv</code> files inside each species folder. When you distribute or export, these corrections are merged into the master <code>results_with_ids.csv</code>, populating the <code>correct_label</code> and <code>human_verified</code> columns. Your master CSV always reflects your latest validation work.</p>
 
-<h2 id="distribute">5. Distributing and Collecting</h2>
+<h2 id="distribute">6. Distributing and Collecting</h2>
 
 <div class="tab-label">Distribute</div>
 
@@ -255,32 +289,59 @@
 
 <p>Send the relevant zip to each volunteer. You might assign one species to each person, or send multiple zips to the same person for different species.</p>
 
-<div class="callout">Zips only include species folders that have unvalidated images. If everything is already validated, no zips are created.</div>
+<div class="callout">wildtag never sends the same image twice. Each time you prepare packages, only images that still need validation and have not already been sent are included, so you can run Prepare again after adding new data without re-sending old images. Use the <strong>Max images per zip</strong> setting to control batch size: smaller zips are easier to email, larger ones suit a single validator working from a drive.</div>
 
 <h3>What the volunteer does</h3>
 <div class="step"><div class="step-num">1</div><div class="step-body">Unzip the file and double-click <code>Run wildtag.bat</code></div></div>
 <div class="step"><div class="step-num">2</div><div class="step-body">Click Browse in the Validate tab and select the unzipped folder</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">Review images, correct labels, click Mark batch complete</div></div>
-<div class="step"><div class="step-num">4</div><div class="step-body">Zip up the folder and return it</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">Return the results: either zip the whole folder and send it, or send back just the <code>..._validation.csv</code> from the species subfolder (the filename does not matter)</div></div>
 
 <h3>Part B - Collect returned validated zips</h3>
-<p>When validators return their zips, drop them into the <code>collect\</code> folder inside your project folder. Then click <strong>Merge all returned validations</strong>. wildtag will:</p>
+<p>When validators return their work, drop the files into the <code>collect\</code> folder inside your project folder. A returned file can be a zip of the whole folder, or just a validator's <code>..._validation.csv</code> under any name; wildtag merges by each detection's unique ID, so the filename and folder structure do not matter, and a file may contain any subset of rows. Then click <strong>Merge all returned validations</strong>. wildtag will:</p>
 <ul>
-  <li>Show you a preview of all corrections across all returned zips</li>
+  <li>Show a preview: how many validated detections and corrections are coming in</li>
+  <li>Note any rows that do not match this project (for example a file returned to the wrong project), which are ignored</li>
   <li>Ask you to confirm before merging</li>
   <li>Update your master validation CSVs and <code>results_with_ids.csv</code></li>
-  <li>Move processed zips to <code>collect\processed\</code> so you know what has been handled</li>
+  <li>Move processed files to <code>collect\processed\</code>; unreadable files are left in <code>collect\</code> to retry</li>
 </ul>
 
 <div class="callout">The first time you click Merge, wildtag creates the <code>collect\</code> folder if it does not exist and tells you where to drop the zips.</div>
 
-<h3>Part C - Export favourite images</h3>
+<h3>Part C - Export as Camtrap DP</h3>
+<p>Click <strong>Export Camtrap DP</strong> to write your validated results as a Camera Trap Data Package (Camtrap DP), the community standard for camera-trap data. wildtag creates a <code>camtrapdp\</code> folder containing <code>deployments.csv</code>, <code>media.csv</code>, <code>observations.csv</code> and a <code>datapackage.json</code> descriptor. Because it follows the standard, this package can be shared, archived, or uploaded to GBIF and other standards-based tools without any further conversion.</p>
+
+<div class="callout">Camtrap DP export (and the detection map) use a <code>deployment.csv</code> file in your project folder, with one row per camera site giving its name, latitude, longitude, and deployment start and retrieval dates. Use the <strong>Save deployment.csv template</strong> button to create a ready-to-fill template, then complete it before exporting. Without it, export still works but the deployment details and map locations will be missing.</div>
+
+<h3>Part D - Export favourite images</h3>
 <p>While validating you can mark standout images as favourites (the heart on each tile). The Distribute tab can then export these into a <code>favourites\</code> folder, organised into one subfolder per species, containing only the images you hearted. This is handy for pulling out the best shots of each species for reports or presentations.</p>
 
-<h3>Viewing detections on a map</h3>
-<p>If your images carry GPS metadata, or you have supplied deployment coordinates, the <strong>Summary</strong> tab has a <strong>Launch map</strong> button that opens an interactive map of your detection locations in your web browser. A dropdown on the map lets you colour sites by species. (In earlier versions this was a separate Map tab; it is now launched from Summary.)</p>
+<h2 id="summary">7. Summary</h2>
 
-<h2 id="csv">6. Understanding the CSV Output</h2>
+<div class="tab-label">Summary</div>
+
+<p>The Summary tab gives an at-a-glance overview of a project: what was processed, how validation is progressing, where files were written, and a breakdown of detections by species. It fills in automatically when you open it.</p>
+
+<h3>What was processed</h3>
+<p>Run statistics for the project: how many images and detections were processed, how many frames were empty, and which model was used.</p>
+
+<h3>Validation progress</h3>
+<p>How many detections have been validated so far and how many remain, so you can see how much review is left across the whole project.</p>
+
+<h3>How many detections per species</h3>
+<p>A table of detection counts per species. After validation this reflects your corrected labels, giving a quick species summary for the survey.</p>
+
+<h3>Confusion matrix</h3>
+<p>Once you have validated some images, this compares the AI's original predictions against your corrections, showing where the model agreed with you and where it did not. It is a quick way to see which species the model handles well and which it tends to confuse.</p>
+
+<h3>Where your files have been saved</h3>
+<p>The locations of the key outputs for the project (the results CSV, the validation folder, and any exports), so you can find them without hunting through folders.</p>
+
+<h3>Viewing detections on a map</h3>
+<p>If your images carry GPS metadata, or you have supplied deployment coordinates, click <strong>Launch map</strong> to open an interactive map of your detection locations in your web browser. A dropdown on the map lets you colour sites by species.</p>
+
+<h2 id="csv">8. Understanding the CSV Output</h2>
 
 <p>wildtag produces a CSV with one row per detection - not one row per image. An image with two animals produces two rows; an empty image produces one row with <code>NA</code> for species fields.</p>
 
@@ -312,7 +373,7 @@
 
 <div class="callout">For analysis, use <code>correct_label</code> where populated, falling back to <code>label</code> where not. This gives the best available identification for every detection.</div>
 
-<h2 id="gdpr">7. Privacy and GDPR</h2>
+<h2 id="gdpr">9. Privacy and GDPR</h2>
 
 <p>Camera traps occasionally capture people. wildtag handles this in two ways:</p>
 <ul>
@@ -332,11 +393,11 @@
 </ul>
 
 <h3>DeepFaune v1.4</h3>
-<p>Developed by CNRS (France). A vision transformer classifier trained on European camera trap images. Classifies animal crops into 38 classes covering the full range of European wildlife.</p>
+<p>Developed by CNRS (France). A vision transformer classifier trained on European camera trap images. Classifies animal crops into 38 classes covering the full range of European wildlife. Downloaded from the Models tab on first use (about 1.1 GB) and used offline afterwards.</p>
 <ul>
   <li>Architecture: ViT-Large with DINOv2 backbone, 182px crop</li>
   <li>Classes: 38 including domestic animals and birds as a group</li>
-  <li>Weight file: 1.1 GB</li>
+  <li>Weight file: 1.1 GB (downloaded on first use, not bundled)</li>
   <li>Best for: European surveys, ungulates and carnivores</li>
 </ul>
 

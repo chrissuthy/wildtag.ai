@@ -1,21 +1,25 @@
 wildtag.ai - Camera Trap Image Processing
 ==========================================
-Version 1.1 - July 2026
+Version 1.2 - July 2026
 
 DOWNLOAD
   wildtag.ai installer:  https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip
   User manual (PDF):     see wildtag_manual.pdf (included with the app)
 
-  The installer download is about 1.8 GB, so use wifi rather than mobile
-  data where possible.
+  wildtag now ships without any model bundled in, so the installer is
+  smaller than before. You download the model you want from inside the
+  app the first time you use it (see MODELS below).
 
 REQUIREMENTS
   - Windows 10 or 11 (64-bit)
-  - About 4 GB of free disk space
-  - An internet connection is needed only to download the installer, and
-    (optionally) the first time you use the SpeciesNet model. DeepFaune,
-    the recommended model for UK and European wildlife, works fully
-    offline once installed.
+  - Disk space: about 3 GB after installing, plus the model you download
+    (DeepFaune about 1.1 GB, or SpeciesNet about 500 MB). So roughly 4 GB
+    once DeepFaune is installed. The installer download itself is much
+    smaller, since no model is bundled.
+  - An internet connection is needed to download the installer, and the
+    first time you download a model. After a model is downloaded it works
+    fully offline. DeepFaune, the recommended model for UK and European
+    wildlife, runs offline once installed.
 
 GETTING STARTED
 
@@ -37,30 +41,46 @@ GETTING STARTED
      Open wildtag from the desktop shortcut or the Start Menu.
      The app opens directly, there is no console window.
 
-  4. Run your first job
+  4. Download a model (first time only)
+     Open the Models tab. It lists the available models with their size
+     and licence. While you are connected to the internet, click Download
+     next to the model you want (DeepFaune is recommended, see MODELS).
+     This happens once; the model is then stored on your computer and used
+     offline from then on.
+
+  5. Run your first job
+     - Open the Run tab
      - Click Browse to select your image folder
-     - Choose a species classifier (see MODELS below)
+     - Choose the model you downloaded
      - Click Run wildtag
 
 MODELS
 
+  wildtag does not come with a model built in. You choose and download one
+  from the Models tab the first time you use the app. Each model is stored
+  locally after its first download and then runs offline.
+
   DeepFaune v1.4 (recommended for UK and European wildlife)
-     Included and ready to use immediately, works offline. Fast on any
-     computer. This is the best choice for most users.
+     A fast, accurate classifier for UK and European species. Works fully
+     offline once downloaded (about 1.1 GB). Runs well on any computer,
+     with or without a graphics card. This is the best choice for most
+     users.
 
   SpeciesNet (Google, global species classification)
-     Covers species worldwide. It is a large model designed to run on a
-     graphics card (GPU). The first time you select it, wildtag offers
-     to download its model files (about 500 MB, one time only).
+     Covers species worldwide (download about 500 MB). It is a large model
+     designed to run on a graphics card (GPU).
 
-     Important: SpeciesNet is very slow on a computer without a GPU
-     (often 10 or more seconds per image), so a large project could take
-     many hours. If your computer has no GPU, DeepFaune is strongly
-     recommended instead. wildtag will warn you about this when you
-     select SpeciesNet.
+     Important: SpeciesNet is very slow on a computer without a GPU (often
+     10 or more seconds per image), so a large project could take many
+     hours. If your computer has no GPU, DeepFaune is strongly recommended
+     instead. wildtag will warn you about this when you select SpeciesNet.
 
-  Both models use MegaDetector internally to locate animals in each
-  image before classifying them.
+  Some models (DeepFaune-UK, DeepFaune New England, DeepFauna Sub-Sahara)
+  appear on the Models tab marked "Planned"; these are in development and
+  cannot yet be downloaded.
+
+  Each model includes its own animal detector, so it locates animals in
+  each image before classifying them.
 
 DOCUMENTATION
   See wildtag_manual.pdf in the install folder for full instructions.
@@ -74,6 +94,9 @@ TROUBLESHOOTING
   - If you see a Windows security warning, click "More info" then
     "Run anyway". This is expected for software that is not yet
     code-signed.
+  - If the Models tab shows a model as "Not installed" and you have no
+    internet, connect to the internet once to download it. After that it
+    works offline.
   - If a run is interrupted (for example, the computer restarts partway
     through), wildtag can resume where it left off. When you reopen the
     project, it will offer to finish building the validation folders.

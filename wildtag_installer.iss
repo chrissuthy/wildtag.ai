@@ -20,7 +20,7 @@
 ; ============================================================
 
 #define MyAppName "wildtag.ai"
-#define MyAppVersion "1.1"
+#define MyAppVersion "1.2"
 #define MyAppPublisher "wildtag.ai"
 #define MyAppExeName "wildtag_launch.vbs"
 
@@ -66,15 +66,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 ; Ship the wildtag.ai folder, but EXCLUDE things that shouldn't be bundled:
-;  - the SpeciesNet kagglehub cache (~512MB): it downloads on demand on
-;    first use, so bundling it would defeat the point and bloat the setup.
-;    DeepFaune's weights live elsewhere in models\ and ARE still shipped,
-;    so DeepFaune works out of the box.
+;  - ALL model weights (models\): this is a MODEL-FREE build. Every model
+;    (DeepFaune, SpeciesNet, and any future model) downloads on first use
+;    from the Models screen and is cached under models\ afterwards. The app
+;    creates models\ itself at runtime, so nothing there needs shipping.
 ;  - __pycache__ (Python bytecode, regenerated automatically)
 ;  - demo .mp4 videos (large, not needed to run the app)
 ;  - the .git folder and log files (dev/runtime cruft)
 Source: "*"; DestDir: "{app}"; \
-    Excludes: "models\speciesnet-global\kagglehub_cache\*,*\__pycache__\*,__pycache__\*,*.mp4,.git\*,*.log"; \
+    Excludes: "models\*,*\__pycache__\*,__pycache__\*,*.mp4,.git\*,*.log"; \
     Flags: recursesubdirs createallsubdirs ignoreversion
 ; (The installer exe itself and this script are excluded automatically
 ;  if you build into an Output\ subfolder, which is the default.)

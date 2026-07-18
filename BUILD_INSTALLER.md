@@ -44,18 +44,27 @@ No app folder to navigate, nothing to accidentally close.
 
 ## What gets excluded (and why)
 
+This is a **model-free** build: no model weights are bundled. The app
+downloads whichever model the user picks from the Models screen on first
+use, and caches it under `models\` for offline use thereafter.
+
 The `.iss` `[Files]` section ships the whole folder EXCEPT:
 
-- `models\speciesnet-global\kagglehub_cache\*` — the SpeciesNet model files
-  (~512 MB). These **download on demand** the first time a user selects
-  SpeciesNet, so bundling them would just bloat the installer. DeepFaune's
-  weights live elsewhere in `models\` and ARE shipped, so DeepFaune works
-  out of the box.
+- `models\*` — all model weights. None are bundled; every model (DeepFaune,
+  SpeciesNet, and any future model) downloads on first use. The app creates
+  `models\` itself at runtime, so it does not need to be shipped.
 - `__pycache__\*`, `*.mp4` (demo videos), `.git\*`, `*.log` — dev/runtime
   cruft not needed to run the app.
 
-If you ever want SpeciesNet bundled again (e.g. for an offline audience),
-remove the first exclude, but expect a ~512 MB larger installer.
+> **Make sure the `.iss` matches.** For a truly model-free installer, the
+> `[Files]` section must exclude all of `models\`, not just the SpeciesNet
+> cache. If your `.iss` still only excludes
+> `models\speciesnet-global\kagglehub_cache\*`, update its `Excludes` so the
+> DeepFaune weights are not shipped either.
+
+If you ever want a fully-bundled, offline-from-first-launch installer, ship
+`models\` (run `build_env.py --bundle-models` first to populate it), but
+expect a roughly 1.6 GB larger installer.
 
 ## Hosting the installer (Hugging Face)
 
@@ -70,21 +79,25 @@ host on Hugging Face:
    `wildtag_installer.zip` to it.
 3. The public download URL is then:
    `https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip`
-4. Tell users: download the zip (~1.8 GB, use wifi), unzip, run
-   `wildtag_Setup.exe`, keeping the `.bin` beside it.
+4. Tell users: download the zip (smaller now that no models are bundled;
+   confirm the size after your first build), unzip, run `wildtag_Setup.exe`,
+   keeping the `.bin` beside it. On first launch they open the Models screen
+   and download a model while connected to the internet.
 
 ## Notes and gotchas
 
-- **Size**: the installer is ~1.8 GB (was larger before excluding the
-  SpeciesNet cache and demo videos). Installed size is ~3.8 GB. Most of it
-  is the Python runtime and DeepFaune weights, unavoidable for the full app.
+- **Size**: with no weights bundled, the installer is much smaller than the
+  old ~1.8 GB (the DeepFaune weights alone were ~1.1 GB). Most of the
+  remaining size is the bundled Python runtime. Users then download their
+  chosen model once (DeepFaune ~1.1 GB, or SpeciesNet ~500 MB) from the
+  Models screen. Confirm the exact figure after your first model-free build.
 - **Compression**: the `.iss` uses `Compression=lzma2/fast`. This installs
   much faster on the user's machine than `lzma2/max` for only a modest size
   increase. If you want the smallest possible download and don't mind slower
   installs, switch it back to `lzma2/max`.
 - **Disk spanning**: `DiskSpanning=yes` + `DiskSliceSize=max` split the
   payload past Inno's ~2 GB single-file cap, hence the `.bin` slice. For a
-  ~1.8 GB payload there is usually just one `.bin`.
+  payload of this size there is usually just one `.bin`.
 - **Install location**: defaults to `%LOCALAPPDATA%\wildtag.ai` (no admin
   rights; the app can write its settings/outputs next to itself). Installing
   to `Program Files` needs admin rights and can cause permission issues
@@ -113,5 +126,5 @@ Each time you cut a new release, bump this line near the top of
 git tag:
 
 ```
-#define MyAppVersion "1.1"
+#define MyAppVersion "1.2"
 ```

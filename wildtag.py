@@ -2133,6 +2133,9 @@ class WildTagApp(tk.Tk):
             is_ready = cache_bundle_present = model_dir = None
 
         for m in models:
+            if m.get("available", True) is False:
+                self._models_card(inner, m, "planned")
+                continue
             state = model_install_state(m, is_ready, cache_bundle_present,
                                         model_dir)
             self._models_card(inner, m, state)
@@ -2171,7 +2174,14 @@ class WildTagApp(tk.Tk):
                 fill="x", pady=(4,4))
 
         row = tk.Frame(c, bg=C["white"]); row.pack(fill="x", pady=(4,0))
-        if state == "installed":
+        if state == "planned":
+            tk.Label(row, text="Planned - not yet available",
+                     font=self._fonts["small"], bg=C["white"],
+                     fg=C["text_muted"]).pack(side="left")
+            b = tk.Label(row, text="Coming soon", font=self._fonts["small"],
+                         bg=C["mist"], fg=C["text_muted"], padx=12, pady=4)
+            b.pack(side="right")
+        elif state == "installed":
             tk.Label(row, text="\u2713 Installed", font=self._fonts["small"],
                      bg=C["white"], fg=C["forest"]).pack(side="left")
             tk.Button(row, text="Remove",
@@ -2311,10 +2321,13 @@ class WildTagApp(tk.Tk):
             "This requires an internet connection and may take several minutes.",
             bg=C["white"]).pack(fill="x", pady=(0,10))
 
-        # Classifier dropdown only — each model brings its own detector
+        # Classifier dropdown only — each model brings its own detector.
+        # Planned models (available: False) show on the Models screen but are
+        # never selectable to run.
         try:
             from wt_models.registry import classifiers
-            cls_models = classifiers()
+            cls_models = [m for m in classifiers()
+                          if m.get("available", True) is not False]
         except ImportError:
             cls_models = []
 
@@ -2805,8 +2818,9 @@ class WildTagApp(tk.Tk):
                     "Open a validation folder first.")
             return 0
 
-        csvs = [c for c in sorted(self._val_folder.rglob("validation.csv"))
-                if "validate_env" not in c.parts]
+        csvs = [c for c in sorted(set(self._val_folder.rglob("validation.csv"))
+                                  | set(self._val_folder.rglob("*_validation.csv")))
+                if "validate_env" not in c.parts and not c.name.endswith(".bak")]
         if not csvs:
             if interactive:
                 messagebox.showinfo("Nothing to repair",
@@ -2864,6 +2878,17 @@ class WildTagApp(tk.Tk):
             messagebox.showinfo("Repair complete", msg)
         return fixed
 
+    @staticmethod
+    def _find_validation_csv(sp_dir):
+        """Return the validation CSV in a species folder, or None. Prefers the
+        canonical validation.csv (a normal project); otherwise the uniquely
+        named <species>_<nnn>_validation.csv shipped in a volunteer package."""
+        canonical = sp_dir / "validation.csv"
+        if canonical.exists():
+            return canonical
+        cands = sorted(sp_dir.glob("*_validation.csv"))
+        return cands[0] if cands else None
+
     def _val_populate_species(self):
         """Populate the species dropdown from the current validation folder."""
         if not self._val_folder or not self._val_folder.exists():
@@ -2901,8 +2926,8 @@ class WildTagApp(tk.Tk):
         for d in sorted(self._val_folder.iterdir()):
             if not d.is_dir():
                 continue
-            val_csv = d / "validation.csv"
-            if not val_csv.exists():
+            val_csv = self._find_validation_csv(d)
+            if not val_csv:
                 continue
             # If we have a summary species set, only bother with folders it
             # names (skips the image-existence disk check entirely)
@@ -2963,8 +2988,8 @@ class WildTagApp(tk.Tk):
         if not sp or not self._val_folder:
             return
 
-        csv_path = self._val_folder / sp / "validation.csv"
-        if not csv_path.exists():
+        csv_path = self._find_validation_csv(self._val_folder / sp)
+        if not csv_path or not csv_path.exists():
             return
 
         self._val_load_favourites()
@@ -4768,7 +4793,7 @@ Thank you for your help.
                                 r = rows_by_name.get(f.name)
                                 if r:
                                     w.writerow(r)
-                            zf.writestr(f"validation/{sp}/validation.csv",
+                            zf.writestr(f"validation/{sp}/{sp}{sfx}_validation.csv",
                                         buf.getvalue(), compress_type=DEF)
                         # Other metadata (valid_species.txt etc.) copied as-is
                         for f in other_meta:
@@ -4828,18 +4853,16 @@ Thank you for your help.
     def _dist_collect(self):
         import zipfile, tempfile, shutil
 
-        # Derive project from current run folder
         proj_str = self._img_folder_var.get().strip()
         if not proj_str:
             messagebox.showerror("No project",
                 "Please select a project folder in the Run tab first.")
             return
 
-        project       = Path(proj_str)
-        local_val     = project / "validation"
-        collect_dir   = project / "collect"
-        processed_dir = collect_dir / "processed"
-        distribute_dir = project / "distribute"
+        project        = Path(proj_str)
+        local_val      = project / "validation"
+        collect_dir    = project / "collect"
+        processed_dir  = collect_dir / "processed"
 
         if not local_val.exists():
             messagebox.showerror("No validation folder",
@@ -4850,132 +4873,153 @@ Thank you for your help.
             collect_dir.mkdir(parents=True)
             messagebox.showinfo("Collect folder created",
                 f"Created collect\\ folder at:\n{collect_dir}\n\n"
-                f"Drop validated zips there and click this button again.")
+                f"Drop returned validation files there (a .csv under any name, "
+                f"or a .zip) and click this button again.")
             return
 
-        zips = list(collect_dir.glob("*.zip"))
-        if not zips:
+        # Any returned file counts: loose CSVs (any name) and zips. wildtag
+        # merges purely by detection_id, so neither the filename nor the folder
+        # structure inside a zip matters, and a file may hold any subset of rows.
+        candidates = [p for p in collect_dir.iterdir()
+                      if p.is_file() and p.suffix.lower() in (".csv", ".zip")]
+        if not candidates:
             messagebox.showinfo("Nothing to collect",
-                f"No zip files found in:\n{collect_dir}\n\n"
-                f"Drop validated zips there and try again.")
+                f"No .csv or .zip files found in:\n{collect_dir}\n\n"
+                f"Drop returned validation files there and try again.")
             return
 
         processed_dir.mkdir(exist_ok=True)
 
-        all_preview  = []
-        all_merge    = {}
-        failed_zips  = []
-        read_ok      = []
+        def _read_csv(path):
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                return list(csv.DictReader(f))
 
-        for zip_path in zips:
+        merged      = {}     # detection_id -> validated row
+        read_ok     = []
+        failed      = []
+
+        def _ingest(rows):
+            if not rows or "detection_id" not in (rows[0] or {}):
+                return
+            for r in rows:
+                if r.get("validated", "").strip().lower() != "yes":
+                    continue
+                did = r.get("detection_id", "").strip()
+                if did:
+                    merged[did] = r
+
+        for path in candidates:
             try:
-                tmp = Path(tempfile.mkdtemp())
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    zf.extractall(tmp)
-
-                for csv_path in tmp.rglob("validation.csv"):
-                    sp = csv_path.parent.name
-                    if sp == "validation":
-                        continue
-                    with open(csv_path, newline="", encoding="utf-8-sig") as f:
-                        rows = list(csv.DictReader(f))
-                    validated = [r for r in rows
-                                 if r.get("validated","").strip().lower() == "yes"]
-                    if not validated:
-                        continue
-                    corrected = [r for r in validated
-                                 if r.get("correct_label","").strip()]
-                    all_preview.append(
-                        f"{zip_path.name} — {sp.replace('_',' ').title()}: "
-                        f"{len(validated)} validated, {len(corrected)} corrections")
-                    for r in corrected:
-                        all_preview.append(
-                            f"    {r.get('image_name','')}: "
-                            f"{r.get('label','')} -> {r.get('correct_label','')}")
-                    if sp not in all_merge:
-                        all_merge[sp] = {}
-                    for r in validated:
-                        did = r.get("detection_id","").strip()
-                        if did:
-                            all_merge[sp][did] = r
-
-                shutil.rmtree(tmp, ignore_errors=True)
-                read_ok.append(zip_path)
-
+                if path.suffix.lower() == ".zip":
+                    tmp = Path(tempfile.mkdtemp())
+                    with zipfile.ZipFile(path, "r") as zf:
+                        zf.extractall(tmp)
+                    # Inside a zip, only the validation CSV(s) - not any other
+                    # CSV that might travel in a full-folder return.
+                    for c in tmp.rglob("*validation.csv"):
+                        _ingest(_read_csv(c))
+                    shutil.rmtree(tmp, ignore_errors=True)
+                else:
+                    # A loose CSV can have any name; trust it, guard by content.
+                    _ingest(_read_csv(path))
+                read_ok.append(path)
             except Exception as e:
-                failed_zips.append(f"{zip_path.name}: {e}")
+                failed.append(f"{path.name}: {e}")
 
-        if not all_merge:
+        if not merged:
             messagebox.showinfo("Nothing to merge",
-                "No validated rows found in any of the collected zips.")
+                "No validated rows were found in the returned files.")
             return
 
-        preview_text = "\n".join(all_preview[:40])
-        if len(all_preview) > 40:
-            preview_text += f"\n... and {len(all_preview)-40} more"
-        if failed_zips:
-            preview_text += "\n\nFailed:\n" + "\n".join(failed_zips)
-
-        confirmed = messagebox.askyesno("Merge preview",
-            f"Ready to merge from {len(zips)} zip(s):\n\n"
-            f"{preview_text}\n\n"
-            f"Merge into your local validation files?")
-        if not confirmed:
-            return
-
-        # Apply merges to local validation CSVs
-        merged_sp = []
-        for sp, lookup in all_merge.items():
-            local_csv = local_val / sp / "validation.csv"
-            if not local_csv.exists():
+        # Index every local detection_id to the species CSV that holds it.
+        local_index = {}          # detection_id -> local csv path
+        local_csvs  = {}          # local csv path -> (rows, fields)
+        for d in sorted(local_val.iterdir()):
+            if not d.is_dir():
                 continue
-            with open(local_csv, newline="", encoding="utf-8-sig") as f:
-                local_rows = list(csv.DictReader(f))
-                f.seek(0)
-                fields = list(csv.DictReader(f).fieldnames)
-            for row in local_rows:
-                det_id = row.get("detection_id","")
-                if det_id in lookup:
-                    imp = lookup[det_id]
-                    row["validated"] = "yes"
-                    if imp.get("correct_label","").strip():
-                        row["correct_label"] = imp["correct_label"]
-            with open(local_csv, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=fields)
-                writer.writeheader()
-                writer.writerows(local_rows)
-            merged_sp.append(sp)
-
-        # Move successfully-read zips from collect/ to collect/processed/ and
-        # remove the matching zip from distribute/. Zips that failed to process
-        # are left in collect/ so they can be retried and stay visible as
-        # outstanding in distribute/.
-        for zip_path in read_ok:
+            lc = self._find_validation_csv(d)
+            if not lc:
+                continue
             try:
-                zip_path.rename(processed_dir / zip_path.name)
+                with open(lc, newline="", encoding="utf-8-sig") as f:
+                    rdr    = csv.DictReader(f)
+                    fields = list(rdr.fieldnames or [])
+                    rows   = list(rdr)
+            except Exception:
+                continue
+            local_csvs[lc] = (rows, fields)
+            for r in rows:
+                did = r.get("detection_id", "")
+                if did:
+                    local_index[did] = lc
+
+        unmatched = sum(1 for did in merged if did not in local_index)
+        matched   = len(merged) - unmatched
+        n_corr    = sum(1 for did, r in merged.items()
+                        if did in local_index and r.get("correct_label", "").strip())
+
+        preview = (f"Ready to merge from {len(read_ok)} file(s):\n\n"
+                   f"{matched} validated detections, {n_corr} corrections.")
+        if unmatched:
+            preview += (f"\n\n{unmatched} row(s) did not match any detection in "
+                        f"this project and will be ignored (a file may have been "
+                        f"returned to the wrong project).")
+        if failed:
+            preview += "\n\nCould not read:\n" + "\n".join(failed)
+        preview += "\n\nMerge into your local validation files?"
+
+        if not messagebox.askyesno("Merge preview", preview):
+            return
+
+        # Apply corrections by detection_id.
+        touched = set()
+        for did, imp in merged.items():
+            lc = local_index.get(did)
+            if not lc:
+                continue
+            rows, _ = local_csvs[lc]
+            for row in rows:
+                if row.get("detection_id", "") == did:
+                    row["validated"] = "yes"
+                    if imp.get("correct_label", "").strip():
+                        row["correct_label"] = imp["correct_label"]
+                    touched.add(lc)
+                    break
+
+        for lc in touched:
+            rows, fields = local_csvs[lc]
+            with open(lc, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=fields)
+                w.writeheader()
+                w.writerows(rows)
+
+        # Move successfully-read files to collect/processed/. Unreadable files
+        # stay in collect/ so they can be retried.
+        for path in read_ok:
+            try:
+                dest = processed_dir / path.name
+                if dest.exists():
+                    dest.unlink()
+                path.rename(dest)
             except Exception:
                 pass
-            # Remove from distribute/ too - it's been returned and merged
-            dist_zip = distribute_dir / zip_path.name
-            if dist_zip.exists():
-                try:
-                    dist_zip.unlink()
-                except Exception:
-                    pass
 
-        # Merge to master CSV
+        # Propagate into the master results_with_ids.csv (also by detection_id).
         self._val_folder = local_val
         self._val_merge_to_master()
 
-        result = (f"Merged {len(merged_sp)} species folder(s): "
-                  f"{', '.join(merged_sp)}\n"
-                  f"Zips moved to collect\\processed\\ and removed from distribute\\\n"
+        result = (f"Merged {matched} validated detections "
+                  f"({n_corr} corrections) into {len(touched)} "
+                  f"species folder(s).\n"
+                  f"Files moved to collect\\processed\\.\n"
                   f"Master results_with_ids.csv updated.")
-        if failed_zips:
-            result += (f"\n\n{len(failed_zips)} zip(s) could not be read and were "
-                       f"left in collect\\ to retry:\n" + "\n".join(failed_zips))
+        if unmatched:
+            result += f"\n{unmatched} unmatched row(s) ignored."
+        if failed:
+            result += (f"\n\n{len(failed)} file(s) could not be read and were "
+                       f"left in collect\\ to retry:\n" + "\n".join(failed))
         self._dist_import_log.config(
-            text=result, fg=C["forest"] if not failed_zips else C["error"])
+            text=result, fg=C["forest"] if not failed else C["error"])
         messagebox.showinfo("Collect complete", result)
 
     def _dist_import(self):

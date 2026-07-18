@@ -29,7 +29,14 @@ GETTING STARTED
   5. When you have reviewed all images, click
      "Mark batch complete".
 
-  6. Zip up this folder and return it.
+  6. Send your results back. Two easy ways, whichever you prefer:
+       - Simplest: right-click this folder, choose
+         "Send to" > "Compressed (zipped) folder", and return the zip.
+       - Smaller: open the species subfolder and return just the
+         file ending in "_validation.csv" (for example
+         fox_001_validation.csv). You can rename it if you like;
+         the name does not matter.
+     Please do not open that .csv in Excel before returning it.
 
 TIPS
   - Take your time - accuracy matters more than speed

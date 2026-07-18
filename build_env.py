@@ -15,6 +15,7 @@ import platform
 import subprocess
 import urllib.request
 import shutil
+import argparse
 from pathlib import Path
 
 ROOT   = Path(__file__).parent
@@ -333,11 +334,21 @@ def write_launchers():
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Build the wildtag bundled environment.")
+    parser.add_argument(
+        "--bundle-models", action="store_true",
+        help="Also pre-download all model weights into models/ (large). "
+             "By default the build is model-free: users download the model "
+             "they choose from the Models screen on first use.")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("wildtag.ai - environment builder")
     print("=" * 60)
     print(f"Platform: {SYSTEM} {ARCH}")
-    print(f"Output:   {ENV_DIR}\n")
+    print(f"Output:   {ENV_DIR}")
+    print(f"Models:   {'BUNDLED' if args.bundle_models else 'model-free (downloaded on first use)'}\n")
 
     # Download micromamba if needed
     if not MAMBA_EXE.exists():
@@ -362,17 +373,27 @@ def main():
     # Install pip extras
     install_pip_extras()
 
-    # Download model weights
-    print("\n" + "=" * 60)
-    print("Downloading model weights...")
-    print("=" * 60)
-    download_model_weights()
+    # Download model weights only when explicitly requested. The default
+    # model-free build ships the environment (with all dependencies) but no
+    # weights; the app fetches the selected model on first use via the Models
+    # screen and caches it under models/ for offline use thereafter.
+    if args.bundle_models:
+        print("\n" + "=" * 60)
+        print("Downloading model weights (--bundle-models)...")
+        print("=" * 60)
+        download_model_weights()
+    else:
+        print("\nModel-free build: no weights bundled.")
+        print("Users download a model from the Models screen on first use.")
 
     # Write launchers
     write_launchers()
 
     print("\n" + "=" * 60)
     print("Setup complete!")
+    if not args.bundle_models:
+        print("This is a MODEL-FREE build. On first launch, open the Models")
+        print("screen and download a model while connected to the internet.")
     print("\nTo start wildtag, double-click:")
     if SYSTEM == "windows":
         print("  launch_wildtag.bat")

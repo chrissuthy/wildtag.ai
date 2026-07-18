@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building the wildtag.ai installer</title>
+<style>
+  :root{--canopy:#1B4332;--forest:#2D6A4F;--frost:#F0F4F1;--border:#D4E4DA;
+    --text:#1a1a1a;--muted:#5a6e63;--accent:#40916C;--warn:#b5451b;--leaf:#52B788;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;line-height:1.7;
+    color:var(--text);background:#fff;}
+  .cover{background:var(--canopy);color:#fff;padding:48px 56px 36px;}
+  .cover h1{font-size:28px;font-weight:700;}
+  .cover .meta{margin-top:16px;font-size:12px;color:#74C69D;text-transform:uppercase;
+    letter-spacing:1px;}
+  main{max-width:820px;margin:0 auto;padding:40px 48px 72px;}
+  h1{font-size:24px;font-weight:700;color:var(--canopy);margin:36px 0 12px;
+    padding-bottom:9px;border-bottom:2px solid var(--border);}
+  h2{font-size:20px;font-weight:700;color:var(--canopy);margin:32px 0 10px;
+    padding-bottom:7px;border-bottom:2px solid var(--border);}
+  h3{font-size:16px;font-weight:600;color:var(--forest);margin:22px 0 8px;}
+  main>h1:first-child{margin-top:0;}
+  p{margin-bottom:14px;}
+  ul,ol{padding-left:24px;margin-bottom:14px;}
+  li{margin-bottom:6px;}
+  strong{color:var(--canopy);}
+  a{color:var(--forest);}
+  code{background:var(--frost);border:1px solid var(--border);border-radius:4px;
+    padding:1px 6px;font-family:'Courier New',monospace;font-size:13px;color:var(--canopy);}
+  pre{background:var(--frost);border:1px solid var(--border);border-radius:6px;
+    padding:12px 14px;overflow-x:auto;margin:14px 0;}
+  pre code{background:none;border:none;padding:0;}
+  blockquote{background:var(--frost);border-left:4px solid var(--accent);
+    padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0;color:var(--text);}
+  blockquote p{margin:0;}
+  table{width:100%;border-collapse:collapse;margin:14px 0 20px;font-size:13.5px;}
+  th{background:var(--canopy);color:#fff;text-align:left;padding:8px 12px;}
+  td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+  tr:nth-child(even) td{background:var(--frost);}
+  footer{background:var(--canopy);color:#74C69D;text-align:center;padding:18px;
+    font-size:12px;margin-top:20px;}
+  @media print{.cover{page-break-after:avoid;}h1,h2{page-break-after:avoid;}}
+</style>
+</head>
+<body>
+<div class="cover"><h1>Building the wildtag.ai installer</h1><div class="meta">Developer guide</div></div>
+<main>
+<p>This turns your wildtag.ai folder into a <strong><code>wildtag_Setup.exe</code></strong> (plus a
+<code>.bin</code> payload file) that your users run to install, no unzipping the app,
+no cmd window, a proper desktop icon with the wildtag logo.</p>
+<h2>What the user experiences</h2>
+<ol>
+<li>They download and unzip <code>wildtag_installer.zip</code>, giving them
+   <code>wildtag_Setup.exe</code> and a <code>.bin</code> file (kept together).</li>
+<li>They double-click <code>wildtag_Setup.exe</code> -&gt; a normal Windows installer
+   wizard appears (with your logo), click Next a couple of times.</li>
+<li>It installs, creates a desktop shortcut and Start Menu entry with the
+   wildtag icon.</li>
+<li>They click the icon -&gt; wildtag opens, <strong>no black cmd window at all</strong>,
+   and the taskbar icon is the wildtag logo (even when pinned).</li>
+</ol>
+<p>No app folder to navigate, nothing to accidentally close.</p>
+<h2>One-time setup on your dev machine</h2>
+<ol>
+<li><strong>Install Inno Setup</strong> (free, tiny): https://jrsoftware.org/isdl.php
+   Accept the defaults.</li>
+</ol>
+<h2>Building the installer</h2>
+<ol>
+<li>Make sure these files are in your <code>wildtag.ai\</code> folder (the same folder
+   as <code>wildtag.py</code>, <code>wildtag.ico</code>, <code>wildtag_env\</code>, <code>models\</code>, etc.):
+   - <code>wildtag_installer.iss</code>
+   - <code>wildtag_launch.vbs</code>
+   - <code>wildtag.ico</code> (your logo, used for the shortcuts and setup icon)</li>
+<li>If your folder is Dropbox-synced, <strong>pause Dropbox</strong> during the compile.
+   Dropbox holding files open causes "the process cannot access the file
+   because it is being used by another process" errors mid-build.</li>
+<li>Right-click <code>wildtag_installer.iss</code> -&gt; <strong>Compile</strong> (or open it in the
+   Inno Setup Compiler and press <strong>F9</strong>).</li>
+<li>It churns for a few minutes while it compresses the multi-GB folder.</li>
+<li>When done, look in the new <strong><code>Output\</code></strong> subfolder. You'll have:
+   - <code>wildtag_Setup.exe</code> (a small launcher stub, ~7 MB)
+   - <code>wildtag_Setup-1.bin</code> (the compressed payload, most of the size)</li>
+</ol>
+<p>Both files together are the installer. They must be distributed and
+   kept <strong>together</strong> in the same folder for the install to work.</p>
+<h2>What gets excluded (and why)</h2>
+<p>This is a <strong>model-free</strong> build: no model weights are bundled. The app
+downloads whichever model the user picks from the Models screen on first
+use, and caches it under <code>models\</code> for offline use thereafter.</p>
+<p>The <code>.iss</code> <code>[Files]</code> section ships the whole folder EXCEPT:</p>
+<ul>
+<li><code>models\*</code> — all model weights. None are bundled; every model (DeepFaune,
+  SpeciesNet, and any future model) downloads on first use. The app creates
+  <code>models\</code> itself at runtime, so it does not need to be shipped.</li>
+<li><code>__pycache__\*</code>, <code>*.mp4</code> (demo videos), <code>.git\*</code>, <code>*.log</code> — dev/runtime
+  cruft not needed to run the app.</li>
+</ul>
+<blockquote>
+<p><strong>Make sure the <code>.iss</code> matches.</strong> For a truly model-free installer, the
+<code>[Files]</code> section must exclude all of <code>models\</code>, not just the SpeciesNet
+cache. If your <code>.iss</code> still only excludes
+<code>models\speciesnet-global\kagglehub_cache\*</code>, update its <code>Excludes</code> so the
+DeepFaune weights are not shipped either.</p>
+</blockquote>
+<p>If you ever want a fully-bundled, offline-from-first-launch installer, ship
+<code>models\</code> (run <code>build_env.py --bundle-models</code> first to populate it), but
+expect a roughly 1.6 GB larger installer.</p>
+<h2>Hosting the installer (Hugging Face)</h2>
+<p>For public distribution, zip the two Output files into one download and
+host on Hugging Face:</p>
+<ol>
+<li>Zip them:
+   <code>powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe','Output\wildtag_Setup-1.bin' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"</code></li>
+<li>Create a public HF repo (e.g. <code>chrissuthy/wildtag-installer</code>) and upload
+   <code>wildtag_installer.zip</code> to it.</li>
+<li>The public download URL is then:
+   <code>https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip</code></li>
+<li>Tell users: download the zip (smaller now that no models are bundled;
+   confirm the size after your first build), unzip, run <code>wildtag_Setup.exe</code>,
+   keeping the <code>.bin</code> beside it. On first launch they open the Models screen
+   and download a model while connected to the internet.</li>
+</ol>
+<h2>Notes and gotchas</h2>
+<ul>
+<li><strong>Size</strong>: with no weights bundled, the installer is much smaller than the
+  old ~1.8 GB (the DeepFaune weights alone were ~1.1 GB). Most of the
+  remaining size is the bundled Python runtime. Users then download their
+  chosen model once (DeepFaune ~1.1 GB, or SpeciesNet ~500 MB) from the
+  Models screen. Confirm the exact figure after your first model-free build.</li>
+<li><strong>Compression</strong>: the <code>.iss</code> uses <code>Compression=lzma2/fast</code>. This installs
+  much faster on the user's machine than <code>lzma2/max</code> for only a modest size
+  increase. If you want the smallest possible download and don't mind slower
+  installs, switch it back to <code>lzma2/max</code>.</li>
+<li><strong>Disk spanning</strong>: <code>DiskSpanning=yes</code> + <code>DiskSliceSize=max</code> split the
+  payload past Inno's ~2 GB single-file cap, hence the <code>.bin</code> slice. For a
+  payload of this size there is usually just one <code>.bin</code>.</li>
+<li><strong>Install location</strong>: defaults to <code>%LOCALAPPDATA%\wildtag.ai</code> (no admin
+  rights; the app can write its settings/outputs next to itself). Installing
+  to <code>Program Files</code> needs admin rights and can cause permission issues
+  since wildtag writes files alongside itself.</li>
+<li><strong>Icons</strong>: the shortcuts set <code>IconIndex: 0</code> and <code>AppUserModelID:
+  "wildtag.ai.desktop.1"</code>, and <code>wildtag.py</code> sets the same AppUserModelID at
+  runtime. Together these make the wildtag logo show on the shortcut, the
+  running taskbar button, AND when pinned to the taskbar (Windows otherwise
+  falls back to the Python icon for pythonw-launched apps). Windows caches
+  icons aggressively, so when testing, uninstall the old build first and run
+  <code>ie4uinit.exe -show</code> to clear the icon cache before reinstalling.</li>
+<li><strong>Windowless launch</strong>: the shortcut runs <code>wildtag_launch.vbs</code>, which uses
+  <code>pythonw.exe</code>. All of wildtag's subprocesses (model runner, SpeciesNet,
+  nvidia-smi, pip) are launched with <code>CREATE_NO_WINDOW</code>, so no console
+  window flashes during a run.</li>
+<li><strong>The GPU setup still works</strong>: the installed app is a normal folder under
+  the hood, so <code>setup_gpu.bat</code> and the automatic GPU install work as before.</li>
+<li><strong>Volunteers</strong>: this installer is for the <em>full</em> app. Volunteer
+  validate-only packages are still distributed as zips via the Distribute
+  tab, that flow is unchanged.</li>
+</ul>
+<h2>Updating the version number</h2>
+<p>Each time you cut a new release, bump this line near the top of
+<code>wildtag_installer.iss</code> so the installer's displayed version matches your
+git tag:</p>
+<pre><code>#define MyAppVersion &quot;1.2&quot;
+</code></pre>
+</main>
+<footer>wildtag.ai &middot; css6@st-andrews.ac.uk</footer>
+</body>
+</html>

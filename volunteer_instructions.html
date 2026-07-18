@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wildtag.ai - Volunteer Instructions</title>
+<style>
+  :root {
+    --canopy: #1B4332;
+    --forest: #2D6A4F;
+    --frost: #F0F4F1;
+    --border: #D4E4DA;
+    --text: #1a1a1a;
+    --muted: #5a6e63;
+    --accent: #40916C;
+    --warn: #b5451b;
+    --leaf: #52B788;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 15px; line-height: 1.7; color: var(--text); background: #fff;
+  }
+  .cover { background: var(--canopy); color: #fff; padding: 56px 56px 44px; }
+  .cover h1 { font-size: 30px; font-weight: 700; }
+  .cover p { font-size: 17px; color: #B7E4C7; margin-top: 14px; max-width: 620px; }
+  .cover .meta {
+    margin-top: 24px; font-size: 12px; color: #74C69D;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  main { max-width: 820px; margin: 0 auto; padding: 44px 48px 72px; }
+  h2 {
+    font-size: 22px; font-weight: 700; color: var(--canopy);
+    margin: 40px 0 12px; padding-bottom: 9px; border-bottom: 2px solid var(--border);
+  }
+  h2:first-child { margin-top: 0; }
+  h3 { font-size: 16px; font-weight: 600; color: var(--forest); margin: 22px 0 8px; }
+  p { margin-bottom: 14px; }
+  ul { padding-left: 22px; margin-bottom: 14px; }
+  li { margin-bottom: 6px; }
+  code {
+    background: var(--frost); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 6px; font-family: 'Courier New', monospace; font-size: 13px; color: var(--canopy);
+  }
+  .kbd {
+    background: #fff; border: 1px solid var(--muted); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 6px; font-family: 'Courier New', monospace;
+    font-size: 13px; font-weight: 700;
+  }
+  .callout {
+    background: var(--frost); border-left: 4px solid var(--accent);
+    padding: 13px 16px; margin: 18px 0; border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-color: var(--warn); background: #FFF5F0; }
+  .step { display: flex; gap: 14px; margin: 12px 0; align-items: flex-start; }
+  .step-num {
+    flex-shrink: 0; width: 26px; height: 26px; background: var(--canopy);
+    color: #fff; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 12px; font-weight: 700; margin-top: 3px;
+  }
+  .step-body { flex: 1; }
+  .step-body strong { display: block; margin-bottom: 2px; }
+  footer { background: var(--canopy); color: #74C69D; text-align: center; padding: 20px; font-size: 12px; }
+  @media print { .cover { page-break-after: avoid; } h2 { page-break-after: avoid; } }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>wildtag.ai - Volunteer Instructions</h1>
+  <p>Thank you for helping validate camera trap images. This walks you through everything, step by step. It takes a few minutes to get started, and you need no technical experience or software installed beforehand.</p>
+  <div class="meta">Species validation &nbsp;&middot;&nbsp; css6@st-andrews.ac.uk</div>
+</div>
+
+<main>
+
+<h2>What's in your file</h2>
+<p>When you unzip the file you were sent, you will see:</p>
+<ul>
+  <li><code>Run wildtag.bat</code> - double-click this one to start (see below).</li>
+  <li><code>wildtag.py</code> - the app itself. You do not need to open this directly.</li>
+  <li><code>validate_env</code> - a private, self-contained copy of everything wildtag needs. You do not need to install Python or anything else.</li>
+  <li>A folder named after the species you are validating, containing the images.</li>
+</ul>
+<div class="callout">You do not need internet access, administrator rights, or any software installed. Everything needed is already in the folder.</div>
+
+<h2>Step 1 - Unzip the file</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body">Right-click the zip file you were sent.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Choose "Extract All..." and pick a location, for example your Desktop.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Open the resulting folder.</div></div>
+
+<h2>Step 2 - Start wildtag</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body">Double-click <code>Run wildtag.bat</code>.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">A black window will briefly appear. This is normal - leave it be.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">A few seconds later, the wildtag window will open.</div></div>
+<div class="callout warn">Windows may show a blue "Windows protected your PC" warning the first time, because this app is not digitally signed. Click "More info", then "Run anyway". This is expected and safe - it happens because the app is new, not because anything is wrong.</div>
+
+<h2>Step 3 - Validate the images</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body">Click the <strong>Validate</strong> tab on the left.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Click <strong>Browse</strong> next to "Validation folder" and select the species folder inside your unzipped folder.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">A gallery of images appears, each already labelled with the species wildtag detected, with a confidence score below it.</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">For each image: if the label looks correct, do nothing and move on. If it looks wrong, click the image and choose the correct species from the list, then apply the correction.</div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body">If the correct species is not in the list, use the <strong>"Not listed? Add a label"</strong> box to add it. Your new label is then available for the rest of your images.</div></div>
+<div class="step"><div class="step-num">6</div><div class="step-body">If you genuinely cannot identify the animal, choose <strong>"unidentifiable"</strong> from the top of the list rather than guessing.</div></div>
+<div class="step"><div class="step-num">7</div><div class="step-body">When you have been through a batch, click <strong>Mark batch complete</strong> and confirm. Repeat until every batch is done, then close wildtag.</div></div>
+
+<div class="callout">To correct several images that share the same error at once, hold <span class="kbd">Ctrl</span> and click each one (selected tiles turn blue), then click any selected tile to correct them all together.</div>
+<div class="callout">Any other detections in the same photo are shown as a thinner amber box. You do not need to do anything with those - they are just there for context.</div>
+
+<h2>Step 4 - Send your results back</h2>
+<p>Either of these works, whichever is easier for you:</p>
+<div class="step"><div class="step-num">A</div><div class="step-body"><strong>Send the whole folder</strong> Right-click the species-named folder, choose "Send to" then "Compressed (zipped) folder", and send the resulting zip to the project lead.</div></div>
+<div class="step"><div class="step-num">B</div><div class="step-body"><strong>Send just your results file</strong> Open the species folder and return the single file whose name ends in <code>_validation.csv</code> (for example <code>fox_001_validation.csv</code>). This is much smaller to send. You may rename it if you like - the name does not matter.</div></div>
+<div class="callout warn">Please do not open the <code>..._validation.csv</code> file in Excel or any other program before returning it, as that can quietly corrupt it.</div>
+
+<h2>A few important notes</h2>
+<ul>
+  <li>You only need to flag images where the label is wrong. Correct ones need no action.</li>
+  <li>If you genuinely cannot identify what is in an image, choose "unidentifiable" rather than guessing.</li>
+  <li>Please do not rename, move, or delete any image files.</li>
+  <li>Images containing people are automatically blurred for privacy.</li>
+  <li>Take your time - accuracy matters more than speed.</li>
+</ul>
+
+<p>Thank you again for your help with this project.</p>
+<p>Questions? Contact <strong>css6@st-andrews.ac.uk</strong></p>
+
+</main>
+
+<footer>wildtag.ai Volunteer Instructions &middot; css6@st-andrews.ac.uk</footer>
+
+</body>
+</html>

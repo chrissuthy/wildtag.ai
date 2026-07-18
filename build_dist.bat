@@ -13,6 +13,10 @@ echo.
 set DIST=wildtag_dist
 set ZIP=wildtag_beta3.zip
 
+:: Model-free by default: the app downloads the chosen model on first use.
+:: Set BUNDLE_MODELS=1 to also copy the pre-downloaded models\ into the dist.
+set BUNDLE_MODELS=0
+
 :: ── 1. Clear and recreate dist folder ────────────────────────────
 echo Clearing %DIST%\...
 if exist "%DIST%" (
@@ -58,9 +62,13 @@ if exist setup_validate_env.bat copy /y setup_validate_env.bat "%DIST%\setup_val
 echo Copying wt_models...
 xcopy /e /i /y /q wt_models "%DIST%\wt_models" >nul
 
-:: ── 4. Models ────────────────────────────────────────────────────
-echo Copying models (this may take a while)...
-xcopy /e /i /y /q models "%DIST%\models" >nul
+:: ── 4. Models (model-free by default) ────────────────────────────
+if "%BUNDLE_MODELS%"=="1" (
+    echo Copying models ^(this may take a while^)...
+    xcopy /e /i /y /q models "%DIST%\models" >nul
+) else (
+    echo Model-free build: skipping models\ ^(users download on first use^).
+)
 
 :: ── 5. wildtag_env ───────────────────────────────────────────────
 echo Copying wildtag_env (this may take a while)...
