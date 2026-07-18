@@ -1,0 +1,431 @@
+%% ---------------------------------------------------------------------------
+%% wildtag.ai - Methods in Ecology and Evolution, Practical Tools
+%% Skeleton draft. Compile with pdfLaTeX + Biber.
+%%
+%% Bibliography: BibTeX (not biber), using the BES's own besjournals style.
+%% On Overleaf the default pdfLaTeX + BibTeX setting handles this automatically.
+%%
+%% Style options:
+%%   \usepackage[anonymous]{mee}  hide authors for double-anonymised review
+%%   \usepackage[final]{mee}      strip line numbers, notes and (cite) markers
+%%
+%% Colour key in the draft PDF:
+%%   orange italics  = \note{}  guidance for the authors, delete before submitting
+%%   green (cite)    = \cw      a citation is needed here
+%%   red [BRACKETS]  = \tbd{}   a number or name still to be decided
+%% ---------------------------------------------------------------------------
+\documentclass[11pt]{article}
+\usepackage{mee}
+
+\meearticletype{Practical Tools}
+\meetitle{wildtag.ai: a fully offline desktop workflow linking automated
+species identification, distributed volunteer validation and
+standards-compliant output for camera-trap surveys}
+\meerunning{wildtag.ai: an offline camera-trap workflow}
+\meeauthors{\tbd{Author One}$^{1}$, \tbd{Author Two}$^{2}$, \tbd{Author Three}$^{1}$}
+\meeaffils{$^{1}$\tbd{Affiliation}. $^{2}$\tbd{Affiliation}.}
+\meecorresponding{\tbd{email@institution.ac.uk}}
+
+\begin{document}
+
+\makemeetitle
+
+\note{References use the British Ecological Society's own BibTeX style
+(besjournals), which ships with TeX Live and needs no extra files. Cite with
+natbib commands: \textbackslash citep\{key\} gives (Author, 2024) and
+\textbackslash citet\{key\} gives Author (2024). Each green (cite) marker below
+marks a place where such a citation is needed.}
+
+\note{Alternative shorter title if the editors want one: ``wildtag.ai: from
+camera-trap images to a validated, standards-compliant dataset, entirely
+offline''.}
+
+\note{Article-type flag. MEE also runs Applications (software and packages) and
+Workflows (assemblages of existing software into pipelines for large datasets).
+wildtag is software that assembles existing models, so an editor may reclassify
+it. All three types share a 3,000-4,000 word limit and this structure, so the
+cost of reclassification is low, but decide deliberately which you target.}
+
+%% ---------------------------------------------------------------------------
+\begin{meeabstract}
+
+\item Camera traps now generate datasets far larger than research teams can
+annotate by hand \cw. Automated detection and classification models have become
+accurate enough for routine use \cw, but converting their raw predictions into a
+verified, shareable dataset still requires scripting, cloud accounts or manual
+file handling that non-specialist field teams cannot readily perform \cw.
+\note{The gap is the ``last mile'' between a model prediction and a trustworthy,
+standards-compliant dataset. Say this plainly; it is the paper's reason to exist.}
+
+\item We present \texttt{wildtag.ai}, a free desktop application that joins the
+full sequence into a single offline workflow: automated detection and species
+classification, structured in-application validation, a self-contained package
+for distributing images to volunteers for verification, and export to the
+Camtrap Data Package (Camtrap DP) standard \cw. Models are bundled and hosted
+locally through a small registry, so no coding, cloud service or internet
+connection is required for the European workflow.
+
+\item We describe the architecture and demonstrate the end-to-end pipeline on a
+reproducible demonstration deployment of 10 sites and \tbd{1,000} images.
+\tbd{Insert one headline quantitative result from a real run: the proportion of
+frames cleared automatically as empty, reviewer time saved, or volunteer
+throughput.}
+
+\item \texttt{wildtag.ai} lowers the technical barrier to closing the loop
+between automated prediction and a verified, standards-compliant camera-trap
+dataset. Because the model registry and the Camtrap DP output are model- and
+region-agnostic, the same workflow extends beyond European mammals to any
+detector-classifier pair and any regional survey.
+\note{This final sentence carries the ``adapted for more general use''
+requirement that MEE states explicitly for Practical Tools. Do not cut it.}
+
+\end{meeabstract}
+
+\meekeywords{camera trap; species identification; deep learning; citizen
+science; data validation; Camtrap DP; biodiversity monitoring; offline software}
+
+%% ---------------------------------------------------------------------------
+\section*{Data and code for peer review}
+
+The \texttt{wildtag.ai} source code, the model registry, the demonstration-project
+generator and the generated fixture are available for review at \tbd{private
+repository or Zenodo DOI}. The application is distributed at \tbd{installer URL}
+and documented in a user manual at \tbd{manual URL}. Model weights are
+redistributed under their respective licences \cw.
+\note{Confirm you are permitted to redistribute the DeepFaune weights
+(CC-BY-NC-SA-4.0) inside the bundle. If that is uncertain, change the design so
+wildtag fetches them on first use, and say so here. A reviewer may check this.}
+
+%% ---------------------------------------------------------------------------
+\section{Introduction}
+\note{Target 700-800 words. Three beats. This section decides whether a reviewer
+believes the paper is novel, so the third beat must land hard.}
+
+\subsection*{Beat 1: automated prediction is largely a solved problem}
+Camera-trap studies routinely collect hundreds of thousands of images, the
+majority of which contain no animal \cw. General-purpose detectors \cw and
+regional or global species classifiers \cw now perform well enough to be
+embedded in routine practice \cw.
+\note{Establish clearly that automated prediction is not what this paper claims
+to advance. Conceding this early buys credibility for the claim that follows.}
+
+\subsection*{Beat 2: the unsolved ``last mile''}
+A prediction is not a dataset. Between a model's output and a publishable,
+reusable dataset lie three tasks that remain awkward for teams without
+programming skills: reviewing and correcting predictions at scale; sharing the
+verification workload, for example with citizen-science volunteers \cw, without
+requiring them to install a software stack; and exporting to a community
+standard so that the result is interoperable \cw. Existing tools address parts
+of this. Cloud platforms require accounts, uploads and connectivity \cw. Offline
+desktop identifiers run models without coding but stop at prediction and export,
+leaving validation and volunteer distribution to the user \cw. Dedicated review
+tools support manual annotation well but are not coupled to modern classifiers
+or to a distributed-validation loop \cw.
+\note{This paragraph is the crux of the paper. Cite each comparator fairly and
+state precisely what it does and does not do; Table 1 then does the heavy
+lifting. Being scrupulously fair to AddaxAI/EcoAssist here is essential, because
+it is the closest tool and the first thing a reviewer will raise.}
+
+\subsection*{Beat 3: what wildtag.ai adds}
+The contribution of \texttt{wildtag.ai} is not a new model but an integration.
+To our knowledge it is the first free desktop tool that carries a survey from
+raw images to a validated, standards-compliant dataset entirely offline,
+including a built-in mechanism for parcelling verification work out to
+volunteers who need install nothing. The design rests on four pillars: local
+model hosting through a simple registry; structured in-application validation;
+self-contained distributed volunteer validation; and native export to a
+community data standard \cw. Because the first and fourth pillars are model- and
+region-agnostic, the workflow is a template rather than a single-region tool.
+\note{Verify the ``first'' claim against the current releases of every comparator
+before submission. If any has added a comparable feature, soften to ``one of
+few'' and lean on the completeness of the end-to-end offline integration
+instead. An overstated priority claim is the easiest way to lose a reviewer.}
+
+%% ---------------------------------------------------------------------------
+\section{Materials and Methods}
+\note{Target 1,200-1,400 words. This is the heart of a Practical Tools paper:
+the reader should finish it able to reproduce or adapt the approach.}
+
+\subsection{Design goals and audience}
+\texttt{wildtag.ai} was built under four constraints drawn from the working
+conditions of its intended users: no programming background; commodity Windows
+laptops rather than servers or clusters; datasets of $10^{5}$ images or more;
+and unreliable or administratively restricted internet access \cw.
+\note{These constraints justify every subsequent design decision (offline,
+no-install, checkpointed) and pre-empt the obvious reviewer question, ``why not
+simply use a cloud platform?''.}
+
+\subsection{Overall architecture}
+The application separates a lightweight graphical interface, which depends only
+on the Python standard library, from a bundled inference environment invoked as
+a subprocess. The interface therefore never imports a deep-learning framework,
+which keeps it responsive and allows a minimal, 28\,MB runtime to be shipped to
+volunteers who only need the validation pane. Figure~\ref{fig:arch} shows the
+architecture and the flow of data. Projects follow an opinionated folder
+structure (site-wise image folders, a deployment table, and generated validation,
+export and run-summary outputs), which makes a project self-documenting and
+allows every subsequent step to locate its inputs without configuration.
+
+\subsection{Model hosting and the registry}
+Models are described in a plain-data registry recording an identifier,
+architecture, weights, licence, citation and dependencies. Each classifier
+supplies its own detector, so the pipeline has no hard dependency on any single
+detection model \cw. Two back ends are currently provided: a European classifier
+paired with a bundled lightweight detector, which runs entirely offline \cw, and
+a global classifier executed as a self-contained subprocess whose weights are
+cached locally on first use \cw. Adding a further model requires a registry entry
+and an inference module implementing two functions.
+\note{State the extensibility explicitly and concretely. This is the mechanism
+by which the tool ``can be adapted for more general use'', which the article type
+demands, so make it impossible to miss.}
+
+\subsection{Running at field scale}
+Several features exist specifically to make very large runs survivable on modest
+hardware, and they are as much a part of the tool's practical contribution as the
+models it wraps. Progress is streamed from the inference subprocess so that a
+multi-day run reports continuously. Results are checkpointed periodically, so a
+crash or a power failure resumes rather than restarts. A stop request finishes
+the current batch and saves, behaving like a pause rather than a kill. The sort
+of images into species folders is non-destructive and resumable, so an
+interrupted sort is completed rather than repeated and no completed work is
+deleted. Long file paths, which arise routinely from nested site and camera
+folders on Windows, are handled explicitly.
+\note{Motivate this section with the real large deployment (approximately 473,000
+images across 103 sites) that drove each of these features. Reviewers of a
+practical-tools paper reward exactly this kind of hard-won field engineering, so
+do not bury it.}
+
+\subsection{In-application validation}
+The validation pane presents predictions as a tiled gallery, one species at a
+time, with bounding boxes drawn and sibling detections in the same frame shown
+for context. Corrections are made against a controlled label vocabulary, singly
+or in multi-selected batches, and are written back to per-species tables so that
+validation produces data rather than merely rearranging files. Human detections
+are pixelated by default in accordance with data-protection requirements \cw.
+Figure~\ref{fig:ui}a shows the interface.
+
+\subsection{Distributed volunteer validation}
+\note{This is the flagship section and the paper's signature contribution.
+Describe it in enough detail that a reader could adopt the pattern in another
+tool.}
+Verification effort is the principal bottleneck once prediction is automated \cw.
+\texttt{wildtag.ai} therefore packages predicted-species images into
+self-contained archives of configurable size, each bundling the application and a
+minimal runtime, so that a volunteer extracts one file, runs it with a single
+action, validates images with no installation, no administrative rights and no
+internet connection, and returns the archive. A collection step then merges the
+returned validations back into the project and tracks which batches remain
+outstanding. Figure~\ref{fig:loop} illustrates the loop. Archive size is
+configurable because the two realistic modes of use pull in opposite directions:
+small archives can be emailed or hosted for remote volunteers, whereas larger
+folders suit paid annotators working from local storage.
+
+\subsection{Standards-compliant export}
+Completed projects are exported as a Camtrap Data Package, comprising deployment,
+media and observation tables with an accompanying metadata descriptor \cw. The
+output is therefore interoperable with the wider camera-trap and biodiversity
+data ecosystem, including aggregators \cw, without further scripting.
+
+\subsection{Demonstration deployment}
+To provide a reproducible worked example, we generated a demonstration project
+of 10 sites and approximately 100 images per site, with an accompanying
+deployment table and a schema-complete results table.
+\note{Be explicit and honest here: the demonstration images are placeholder
+frames, so the species counts they yield are synthetic and illustrative. They
+demonstrate that the plumbing works and that the example is reproducible; they do
+not demonstrate a result. Before submission, run wildtag on a real dataset and
+regenerate Table 2 and Figure 3b from genuine model output. A reviewer who
+discovers synthetic counts presented as findings will reject the paper, so this
+substitution is not optional.}
+
+%% ---------------------------------------------------------------------------
+\section{Results}
+\note{Target 600-700 words. Report the demonstration as a walkthrough of the four
+pillars producing one coherent dataset, and lead with the strongest real number
+once you have it.}
+
+\subsection*{Automated triage}
+\tbd{Report the proportion of frames cleared without human attention. In the
+synthetic demonstration set, 550 of 1,000 frames were empty and 450 animal
+detections were distributed across 10 classes; these figures are illustrative
+placeholders only.}
+
+\subsection*{Validation effort}
+\tbd{From a real run: images reviewed per hour in the gallery, or total reviewer
+time for the dataset. This is the number that demonstrates the tool saves labour,
+and it is the most persuasive single figure in the paper.}
+
+\subsection*{Distributed validation}
+\tbd{Report a real volunteer round if at all possible: number of volunteers,
+number of batches, turnaround time, and the rate at which volunteers corrected
+the model. Even a single small pilot round would be compelling evidence for the
+central claim.}
+
+\subsection*{Standards-compliant output}
+\tbd{Confirm that a valid Camtrap DP package was produced, ideally by passing it
+through the standard's validator, and report the outcome.} \cw
+
+\subsection*{Robustness at scale}
+\tbd{If available, report completion of the large real deployment, including at
+least one checkpoint-and-resume event, as direct evidence that the field-scale
+engineering works in practice.}
+
+%% ---------------------------------------------------------------------------
+\section{Discussion}
+\note{Target 600-700 words.}
+
+\subsection*{What is new}
+Restate that the contribution is the end-to-end offline integration, and in
+particular the built-in distributed volunteer validation loop, which no
+comparable free desktop tool provides \cw.
+\note{Claim nothing about model accuracy. That credit belongs to the developers of
+the underlying models, and claiming it would be both wrong and easy to catch.}
+
+\subsection*{Generalisability}
+\note{Required by the article type: MEE asks that tools built for a specific
+system be shown to adapt to more general use. Devote real space to this.}
+The workflow is a template rather than a single-region application. The registry
+allows any detector-classifier pair to be substituted, so a team working on
+another continent, another taxon, or a locally fine-tuned model uses the same
+pipeline unchanged \cw. Standards-compliant export means the result feeds
+existing infrastructure regardless of region or taxon \cw. The volunteer loop is
+content-agnostic, distributing whatever classes the chosen model produces.
+\tbd{Give one or two concrete ``you could use this for X'' examples to make the
+generality tangible rather than asserted.}
+
+\subsection*{Limitations}
+\note{State these plainly and first-hand. Reviewers will find them anyway, and
+candour in a tools paper is persuasive rather than damaging.}
+The application currently targets Windows only. The global model and the mapping
+view require internet access, so only the European workflow is fully offline.
+Validation quality depends on reviewer skill and, for volunteers, on task design
+\cw. The bundled distribution is large. Most importantly, the tool orchestrates
+rather than improves the underlying models, and therefore inherits their
+taxonomic and geographic biases \cw.
+
+\subsection*{Future directions}
+Cross-platform builds; multi-observer agreement and consensus within the
+volunteer loop \cw; optional active learning to prioritise uncertain images for
+human review \cw; and additional models in the registry.
+
+\subsection*{Conclusion}
+\texttt{wildtag.ai} closes the last mile between an automated prediction and a
+verified, shareable dataset, offline and without code, in a way that generalises
+across models and regions.
+
+%% ---------------------------------------------------------------------------
+\section*{Author contributions}
+\tbd{CRediT statement.}
+
+\section*{Acknowledgements}
+\tbd{Funders, volunteers, and the developers of the underlying models.}
+
+\section*{Conflict of interest}
+\tbd{None declared, or declare.}
+
+\section*{Data availability statement}
+\tbd{Repository and DOI for the code, the demonstration fixture and the
+demonstration outputs.}
+
+%% ---------------------------------------------------------------------------
+\clearpage
+\section*{Tables}
+
+\begin{table}[htbp]
+\centering
+\caption{Capabilities of \texttt{wildtag.ai} compared with representative
+camera-trap tools. \note{Verify every cell against the current release of each
+tool before submission. The row that must survive scrutiny is the zero-install
+distributed validation row, because it carries the paper's novelty claim.}}
+\label{tab:compare}
+\small
+\begin{tabular}{p{5.1cm} c c c c c}
+\toprule
+Capability & wildtag.ai & Tool B & Tool C & Tool D & Tool E \\
+\midrule
+Runs offline, no account required        & Yes & Yes & No  & No  & Yes \\
+No programming required                  & Yes & Yes & Yes & Yes & Yes \\
+Multi-model registry (detector + classifier) & Yes & Yes & Fixed & Fixed & None \\
+Structured in-application validation     & Yes & Partial & Yes & Yes & Yes \\
+\textbf{Zero-install distributed volunteer validation} & \textbf{Yes} & No & No & Partial & No \\
+Native standards-compliant export        & Yes & Partial & Export & Export & No \\
+Checkpoint and resume for very large runs & Yes & \tbd{?} & n/a & n/a & n/a \\
+Cost                                     & Free & Free & Free tier & Free/paid & Free \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Species summary for the demonstration deployment.
+\note{Illustrative placeholder values from the synthetic fixture. Regenerate from
+a real wildtag run on real images before submission.}}
+\label{tab:species}
+\small
+\begin{tabular}{l r}
+\toprule
+Class & Detections \\
+\midrule
+Empty (no animal)  & \tbd{550} \\
+Roe deer           & \tbd{104} \\
+Red deer           & \tbd{77}  \\
+Badger             & \tbd{54}  \\
+Bird               & \tbd{50}  \\
+Fox                & \tbd{46}  \\
+Wild boar          & \tbd{37}  \\
+Squirrel           & \tbd{27}  \\
+Human              & \tbd{21}  \\
+Lagomorph          & \tbd{18}  \\
+\midrule
+Total images       & \tbd{1{,}000} \\
+Sites              & 10 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% ---------------------------------------------------------------------------
+\clearpage
+\section*{Figures}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox[c][5cm][c]{0.85\textwidth}{\centering
+\note{Figure 1 placeholder. Architecture and data flow: graphical interface,
+subprocess inference engine, model registry, project folder, and outputs.}}}
+\caption{Architecture and data flow of \texttt{wildtag.ai}.}
+\label{fig:arch}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox[c][5cm][c]{0.85\textwidth}{\centering
+\note{Figure 2 placeholder. The distribute-validate-collect-merge loop. This is
+the paper's signature figure and the one reviewers will remember; invest real
+effort in it.}}}
+\caption{The distributed volunteer validation loop.}
+\label{fig:loop}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox[c][5cm][c]{0.85\textwidth}{\centering
+\note{Figure 3 placeholder. (a) The validation gallery with structured
+correction. (b) The generated deployment map for the demonstration survey.}}}
+\caption{(a) In-application validation gallery. (b) Generated deployment map.}
+\label{fig:ui}
+\end{figure}
+
+%% ---------------------------------------------------------------------------
+\clearpage
+
+%% \nocite{*} forces the template entries in refs.bib to appear so that the
+%% skeleton compiles with a visible reference list before any real citations
+%% exist. DELETE this line as soon as you have real \citep/\citet citations in
+%% the text, otherwise every entry in refs.bib will be printed whether cited
+%% or not.
+\nocite{*}
+
+\bibliographystyle{besjournals}
+\bibliography{refs}
+
+\end{document}

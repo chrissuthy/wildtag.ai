@@ -183,6 +183,39 @@ def get_all_labels_for_model(classifier_id: str) -> list:
     Returns None for models where we use observed labels only."""
     return MODEL_CLASS_LISTS.get(classifier_id, [])
 
+
+def fmt_model_size(mb):
+    """Human-readable model size from a size-in-MB registry field."""
+    try:
+        mb = float(mb)
+    except (TypeError, ValueError):
+        return ""
+    return f"{mb/1024:.1f} GB" if mb >= 1024 else f"{int(mb)} MB"
+
+
+def model_install_state(meta, is_ready=None, cache_bundle_present=None,
+                        model_dir=None):
+    """Return 'installed' or 'available' for a registry entry, using the real
+    downloader checks. Cache-bundle models (SpeciesNet) count as installed only
+    when their extracted cache is present; other models when the ready.json
+    marker exists, or - for a model pre-bundled without a marker - when the
+    weights file is already on disk. Unknown / erroring cases report
+    'available' so the UI offers a safe, idempotent download."""
+    try:
+        cb = meta.get("cache_bundle")
+        if cb:
+            if cache_bundle_present:
+                return "installed" if cache_bundle_present(cb) else "available"
+            return "available"
+        if is_ready and is_ready(meta["id"]):
+            return "installed"
+        wf = meta.get("weights_file")
+        if wf and model_dir and (Path(model_dir(meta["id"])) / wf).exists():
+            return "installed"
+    except Exception:
+        pass
+    return "available"
+
 def build_image_path(absolute_path, relative_path):
     base = Path(absolute_path.strip())
     rel  = Path(relative_path.strip().replace("\\", os.sep).replace("/", os.sep))
@@ -460,10 +493,13 @@ def enrich_csv(input_path, log):
 
 # ── Step 2 ────────────────────────────────────────────────────────────────────
 
-def pad_bbox(x0, y0, x1, y1, img_w, img_h, frac=0.08, min_px=4):
-    """Expand a bbox by a small buffer, proportional to the box size with
-    a minimum in pixels, clamped to the image edges. Tight boxes crowd the
-    animal and make small detections hard to see under the outline."""
+def pad_bbox(x0, y0, x1, y1, img_w, img_h, frac=0.12, min_px=None):
+    """Expand a bbox by a buffer, proportional to the box size with a
+    minimum in pixels, clamped to the image edges. Tight boxes crowd the
+    animal and make small detections hard to see under the outline, so the
+    minimum margin scales with the image when no explicit value is given."""
+    if min_px is None:
+        min_px = max(8, img_w // 130)
     px = max(min_px, int((x1 - x0) * frac))
     py = max(min_px, int((y1 - y0) * frac))
     return (max(0, x0 - px), max(0, y0 - py),
@@ -474,7 +510,8 @@ def draw_bbox_on_image(img, bbox, label, conf, scale):
     x0,y0 = int(bbox["left"]*scale), int(bbox["top"]*scale)
     x1,y1 = int(bbox["right"]*scale), int(bbox["bottom"]*scale)
     x0,y0,x1,y1 = pad_bbox(x0, y0, x1, y1, img.width, img.height)
-    draw.rectangle([x0,y0,x1,y1], outline="#00FF00", width=max(3, int(img.width/200)))
+    draw.rectangle([x0,y0,x1,y1], outline="#00FF00",
+                   width=max(2, min(6, img.width // 350)))
     text = f"{label}  {conf:.2f}"
     # Font size proportional to image width — readable after thumbnail
     fsz  = max(32, img.width // 25)
@@ -549,7 +586,7 @@ def resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                                            img.width, img.height)
                 sdraw.rectangle([px0,py0,px1,py1],
                                 outline="#FFC107",
-                                width=max(3, int(img.width/250)))
+                                width=max(2, min(4, img.width // 400)))
 
         # Draw bbox only if all coords are present and box has non-zero area
         if (all(v is not None for v in bbox.values()) and
@@ -1869,6 +1906,7 @@ class WildTagApp(tk.Tk):
         self._panes = {}
         validate_only = not (Path(__file__).parent / "wildtag_env").exists()
         if not validate_only:
+            self._build_pane_models()
             self._build_pane_run()
             self._build_pane_distribute()
             self._map_init_state()
@@ -1885,6 +1923,7 @@ class WildTagApp(tk.Tk):
         validate_only = not (Path(__file__).parent / "wildtag_env").exists()
 
         items = [
+            ("models",     "Models",       not validate_only),
             ("run",        "Run wildtag",  not validate_only),
             ("validate",   "Validate",     True),
             ("distribute", "Distribute",   not validate_only),
@@ -1997,6 +2036,12 @@ class WildTagApp(tk.Tk):
                 if local_val.exists() and hasattr(self, "_val_status_lbl"):
                     self._val_folder = local_val
                     self._val_folder_var.set(str(local_val))
+                    # Silently repair the manifest so a volunteer never sees
+                    # 'Image not found' tiles; non-destructive, backs up first.
+                    try:
+                        self._val_repair_manifests(interactive=False)
+                    except Exception:
+                        pass
                     self.after(100, self._val_populate_species)
 
     # ── PANE: SETUP ───────────────────────────────────────────────────────────
@@ -2045,6 +2090,166 @@ class WildTagApp(tk.Tk):
         s["last_pane"] = self._active_pane
         save_settings(s)
         self._set_status("Settings saved", C["forest"])
+
+    # ── PANE: MODELS ──────────────────────────────────────────────────────────
+
+    def _build_pane_models(self):
+        pane = tk.Frame(self._pane_area, bg=C["frost"])
+        self._panes["models"] = pane
+        self._models_inner = self._scrollable(pane)
+        self._models_status_lbls = {}
+        self._models_downloading = set()
+        self._models_render()
+
+    def _models_render(self):
+        """(Re)draw the model list with current install status."""
+        inner = self._models_inner
+        for w in inner.winfo_children():
+            w.destroy()
+        self._models_status_lbls = {}
+
+        tk.Frame(inner, bg=C["frost"], height=8).pack()
+        tk.Label(inner, text="Models", font=self._fonts["h2"],
+                 bg=C["frost"], fg=C["canopy"], anchor="w").pack(
+                     fill="x", padx=24, pady=(0,2))
+        self._wrap_label(inner,
+            "wildtag ships with no model. Download the one you need while you "
+            "have a connection; afterwards it runs completely offline.",
+            bg=C["frost"]).pack(fill="x", padx=24)
+        tk.Frame(inner, bg=C["frost"], height=10).pack()
+
+        try:
+            from wt_models.registry import classifiers
+            models = classifiers()
+        except Exception as e:
+            self._wrap_label(inner, f"Could not read the model registry: {e}",
+                             bg=C["frost"]).pack(fill="x", padx=24)
+            return
+
+        try:
+            from wt_models.downloader import (is_ready, cache_bundle_present,
+                                              model_dir)
+        except Exception:
+            is_ready = cache_bundle_present = model_dir = None
+
+        for m in models:
+            state = model_install_state(m, is_ready, cache_bundle_present,
+                                        model_dir)
+            self._models_card(inner, m, state)
+
+        tk.Frame(inner, bg=C["frost"], height=8).pack()
+        self._wrap_label(inner,
+            "Models download once, then run offline. The first download needs "
+            "internet; each file is checked before use.",
+            bg=C["frost"]).pack(fill="x", padx=24, pady=(0,20))
+
+    def _models_card(self, inner, m, state):
+        mid = m.get("id", "")
+        o, c = self._card(inner)
+        o.pack(fill="x", padx=24, pady=6)
+
+        tk.Label(c, text=m.get("name", mid), font=self._fonts["label"],
+                 bg=C["white"], fg=C["canopy"], anchor="w").pack(fill="x")
+
+        region = ", ".join(m.get("regions", [])) or ""
+        arch   = m.get("architecture", "")
+        meta_line = "  \u00b7  ".join(x for x in [region, arch] if x)
+        if meta_line:
+            self._wrap_label(c, meta_line, bg=C["white"]).pack(fill="x", pady=(2,0))
+
+        cb   = m.get("cache_bundle") or {}
+        size = fmt_model_size(cb.get("size_mb") or m.get("weights_size"))
+        lic  = m.get("license", "")
+        info = "  \u00b7  ".join(x for x in [
+            f"Size: {size}" if size else "",
+            f"Licence: {lic}" if lic else ""] if x)
+        if info:
+            self._wrap_label(c, info, bg=C["white"]).pack(fill="x", pady=(2,0))
+
+        if m.get("description"):
+            self._wrap_label(c, m["description"], bg=C["white"]).pack(
+                fill="x", pady=(4,4))
+
+        row = tk.Frame(c, bg=C["white"]); row.pack(fill="x", pady=(4,0))
+        if state == "installed":
+            tk.Label(row, text="\u2713 Installed", font=self._fonts["small"],
+                     bg=C["white"], fg=C["forest"]).pack(side="left")
+            tk.Button(row, text="Remove",
+                      command=lambda mm=m: self._models_remove(mm),
+                      font=self._fonts["small"], bg=C["border"], fg=C["canopy"],
+                      relief="flat", padx=12, pady=4, cursor="hand2").pack(side="right")
+        else:
+            tk.Label(row, text="Not installed", font=self._fonts["small"],
+                     bg=C["white"], fg=C["text_muted"]).pack(side="left")
+            tk.Button(row, text="Download",
+                      command=lambda mm=m: self._models_download(mm),
+                      font=self._fonts["small"], bg=C["forest"], fg=C["white"],
+                      activebackground=C["leaf"], activeforeground=C["white"],
+                      relief="flat", padx=14, pady=4, cursor="hand2").pack(side="right")
+
+        lbl = tk.Label(c, text="", font=self._fonts["small"], bg=C["white"],
+                       fg=C["text_muted"], anchor="w")
+        lbl.pack(fill="x", pady=(4,0))
+        self._models_status_lbls[mid] = lbl
+
+    def _models_download(self, m):
+        mid  = m.get("id", "")
+        if mid in getattr(self, "_models_downloading", set()):
+            return
+        lbl  = self._models_status_lbls.get(mid)
+        cb   = m.get("cache_bundle") or {}
+        size = fmt_model_size(cb.get("size_mb") or m.get("weights_size"))
+        if not messagebox.askyesno("Download model",
+            f"Download {m.get('name', mid)}"
+            + (f" (about {size})" if size else "") + "?\n\n"
+            "This needs an internet connection and happens once. Afterwards "
+            "wildtag uses it offline."):
+            return
+
+        self._models_downloading.add(mid)
+
+        def _log(msg, *a):
+            if lbl:
+                self.after(0, lambda: lbl.config(text=str(msg)[:120],
+                                                 fg=C["text_muted"]))
+
+        def _prog(done, total):
+            if lbl and total:
+                pct = int(done * 100 / max(1, total))
+                self.after(0, lambda: lbl.config(text=f"Downloading... {pct}%",
+                                                 fg=C["text_muted"]))
+
+        def _work():
+            try:
+                from wt_models.downloader import ensure_model
+                ensure_model(mid, _log, _prog)
+                self.after(0, lambda: (
+                    self._set_status(f"{m.get('name', mid)} installed", C["forest"]),
+                    self._models_render()))
+            except Exception as e:
+                self.after(0, lambda: (lbl and lbl.config(
+                    text=f"Download failed: {e}", fg=C["error"])))
+            finally:
+                self._models_downloading.discard(mid)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _models_remove(self, m):
+        import shutil
+        mid = m.get("id", "")
+        if not messagebox.askyesno("Remove model",
+            f"Remove the downloaded files for {m.get('name', mid)}?\n\n"
+            "You can download it again later."):
+            return
+        try:
+            from wt_models.downloader import model_dir
+            d = Path(model_dir(mid))
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
+            self._set_status(f"{m.get('name', mid)} removed", C["forest"])
+        except Exception as e:
+            self._set_status(f"Could not remove: {e}", C["error"])
+        self._models_render()
 
     def _build_pane_run(self):
         pane  = tk.Frame(self._pane_area, bg=C["frost"])
@@ -2475,6 +2680,14 @@ class WildTagApp(tk.Tk):
             cursor="hand2")
         self._val_next_btn.pack(side="left")
 
+        self._val_repair_btn = tk.Button(
+            nav, text="Repair folders",
+            command=self._val_repair_manifests,
+            font=self._fonts["small"], bg=C["border"],
+            fg=C["canopy"], relief="flat", padx=10, pady=4,
+            cursor="hand2")
+        self._val_repair_btn.pack(side="left", padx=(20,0))
+
         self._val_complete_btn = tk.Button(
             nav, text="Mark batch complete",
             command=self._val_complete_batch,
@@ -2577,6 +2790,79 @@ class WildTagApp(tk.Tk):
         self._val_folder = picked
         self._val_folder_var.set(str(picked))
         self._val_populate_species()
+
+    def _val_repair_manifests(self, interactive=True):
+        """Trim each species validation.csv to the images actually present in
+        its folder. Fixes 'Image not found' tiles left by older distribution
+        packages that shipped the full species manifest to every batch.
+        Non-destructive: backs up each original to validation.csv.bak and
+        keeps any validating already done. Runs inside the app, so volunteers
+        never need a separate script. With interactive=False it runs silently
+        (used to auto-repair a folder the moment it is opened)."""
+        if not self._val_folder or not self._val_folder.exists():
+            if interactive:
+                messagebox.showinfo("Nothing to repair",
+                    "Open a validation folder first.")
+            return 0
+
+        csvs = [c for c in sorted(self._val_folder.rglob("validation.csv"))
+                if "validate_env" not in c.parts]
+        if not csvs:
+            if interactive:
+                messagebox.showinfo("Nothing to repair",
+                    "No validation folders found here.")
+            return 0
+
+        if interactive and not messagebox.askyesno("Repair validation folders",
+            "This removes entries for images that are not in each folder, so "
+            "'Image not found' tiles disappear.\n\n"
+            "Your images and any validating already done are kept, and a "
+            "backup (validation.csv.bak) is saved first.\n\nContinue?"):
+            return 0
+
+        img_exts = (".jpg", ".jpeg", ".png")
+        fixed = 0
+        details = []
+        for c in csvs:
+            folder = c.parent
+            present = {p.name.lower() for p in folder.iterdir()
+                       if p.suffix.lower() in img_exts}
+            try:
+                rows, fields = load_csv(c)
+            except Exception:
+                continue
+            if not fields or "image_name" not in fields:
+                continue
+            keep = [r for r in rows
+                    if Path(r.get("image_name","")).name.lower() in present]
+            if rows and not keep:
+                continue            # no matching images here: leave untouched
+            if len(keep) == len(rows):
+                continue            # already correct
+            bak = c.with_suffix(".csv.bak")
+            if not bak.exists():
+                bak.write_bytes(c.read_bytes())
+            with open(c, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=fields)
+                w.writeheader()
+                w.writerows(keep)
+            details.append(f"{folder.name}:  {len(rows)} -> {len(keep)} images")
+            fixed += 1
+
+        if interactive:
+            # Reload the gallery so the change shows immediately.
+            self._val_batch = 0
+            self._val_populate_species()
+            if fixed:
+                msg = ("Repaired {0} folder(s):\n\n".format(fixed)
+                       + "\n".join(details[:20]))
+                if len(details) > 20:
+                    msg += "\n... and {0} more".format(len(details) - 20)
+                msg += "\n\nBackups saved as validation.csv.bak."
+            else:
+                msg = "Everything was already correct. Nothing needed changing."
+            messagebox.showinfo("Repair complete", msg)
+        return fixed
 
     def _val_populate_species(self):
         """Populate the species dropdown from the current validation folder."""
@@ -2846,6 +3132,13 @@ class WildTagApp(tk.Tk):
                  text="Click an image to flag it as incorrectly labelled.",
                  font=self._fonts["small"], bg=C["frost"],
                  fg=C["text_muted"], anchor="w").pack(
+                     fill="x", padx=16, pady=(0,2))
+        tk.Label(self._val_gallery_inner,
+                 text="To select multiple images, hold Ctrl and click each "
+                      "one (selected tiles turn blue), then click any selected "
+                      "tile to correct them all together.",
+                 font=self._fonts["small"], bg=C["frost"],
+                 fg=C["forest"], anchor="w", justify="left").pack(
                      fill="x", padx=16, pady=(0,10))
 
         # Grid frame
@@ -3823,7 +4116,7 @@ class WildTagApp(tk.Tk):
                     return
 
                 # Read master
-                with open(master_path, newline="", encoding="utf-8") as f:
+                with open(master_path, newline="", encoding="utf-8-sig") as f:
                     reader = csv.DictReader(f)
                     master_fields = list(reader.fieldnames)
                     master_rows   = list(reader)
@@ -3841,7 +4134,7 @@ class WildTagApp(tk.Tk):
                     val_csv = sp_dir / "validation.csv"
                     if not sp_dir.is_dir() or not val_csv.exists():
                         continue
-                    with open(val_csv, newline="", encoding="utf-8") as f:
+                    with open(val_csv, newline="", encoding="utf-8-sig") as f:
                         for row in csv.DictReader(f):
                             det_id = row.get("detection_id","").strip()
                             if det_id:
@@ -4329,6 +4622,19 @@ Thank you for your help.
         created = []
         errors  = []
 
+        # Never send the same image twice. A ledger of image_names packaged in
+        # previous runs is kept in distribute/, and images already validated
+        # locally are skipped too. Delete distributed_images.txt to allow a
+        # full re-send.
+        sent_log = out_path / "distributed_images.txt"
+        already_sent = set()
+        if sent_log.exists():
+            already_sent = {ln.strip() for ln in
+                            sent_log.read_text(encoding="utf-8").splitlines()
+                            if ln.strip()}
+        newly_sent   = []
+        skipped_done = 0
+
         # Sibling-bbox drawing (other detections in the same source image,
         # shown as thin muted boxes behind the main detection). If this
         # project was sorted with baked-in sibling boxes, the boxes are
@@ -4360,14 +4666,38 @@ Thank you for your help.
             # validation.csv, so batch filenames (named by detection_id)
             # can be resolved to the image_id sibling lookups need
             det_to_img = {}
+            sp_rows, sp_fields = [], []
             sp_csv = sp_dir / "validation.csv"
             if sp_csv.exists():
                 try:
-                    sp_rows, _ = load_csv(sp_csv)
+                    sp_rows, sp_fields = load_csv(sp_csv)
                     det_to_img = {r.get("detection_id",""): r.get("image_id","")
                                   for r in sp_rows}
                 except Exception:
                     det_to_img = {}
+            # image_name -> row, so each batch can ship only its own manifest
+            # rows. Copying the whole validation.csv into every batch is what
+            # left volunteers with rows for images not in their zip ("Image
+            # not found"). Fall back to shipping the raw file if we couldn't
+            # parse it.
+            rows_by_name = {r.get("image_name",""): r for r in sp_rows}
+            if sp_fields:
+                other_meta = [f for f in meta if f.name != "validation.csv"]
+            else:
+                other_meta = meta
+
+            # Only package images that still need validation and have not been
+            # sent before, so no volunteer ever receives the same image twice.
+            validated_names = {r.get("image_name","") for r in sp_rows
+                               if r.get("validated","").strip().lower() == "yes"}
+            before_n = len(imgs)
+            imgs = [f for f in imgs
+                    if f.name not in already_sent
+                    and f.name not in validated_names]
+            skipped_done += before_n - len(imgs)
+            if not imgs:
+                continue
+            n_batches = max(1, math.ceil(len(imgs) / BATCH))
 
             for idx in range(n_batches):
                 batch = imgs[idx*BATCH:(idx+1)*BATCH]
@@ -4428,7 +4758,20 @@ Thank you for your help.
                         # no recompression, this is the big speedup.
                         for f in batch:
                             zf.write(f, f"validation/{sp}/{f.name}")
-                        for f in meta:
+                        # Per-batch validation.csv: only the rows for images in
+                        # THIS batch, so the manifest matches the images shipped.
+                        if sp_fields:
+                            buf = io.StringIO()
+                            w = csv.DictWriter(buf, fieldnames=sp_fields)
+                            w.writeheader()
+                            for f in batch:
+                                r = rows_by_name.get(f.name)
+                                if r:
+                                    w.writerow(r)
+                            zf.writestr(f"validation/{sp}/validation.csv",
+                                        buf.getvalue(), compress_type=DEF)
+                        # Other metadata (valid_species.txt etc.) copied as-is
+                        for f in other_meta:
                             zf.write(f, f"validation/{sp}/{f.name}")
                         if has_env:
                             for f in validate_env.rglob("*"):
@@ -4451,10 +4794,28 @@ Thank you for your help.
                                 w.writerows(sub_rows)
                                 zf.writestr("results_with_ids.csv", buf.getvalue())
                     created.append(zname)
+                    newly_sent.extend(f.name for f in batch)
                 except Exception as e:
                     errors.append(f"{zname}: {e}")
 
+        # Record everything packaged this run so it is never sent again.
+        if newly_sent:
+            with open(sent_log, "a", encoding="utf-8") as f:
+                for name in newly_sent:
+                    f.write(name + "\n")
+
+        if not created:
+            self._dist_prep_log.config(
+                text="Nothing new to send", fg=C["forest"])
+            messagebox.showinfo("Nothing to package",
+                "Every image has already been sent or validated.\n\n"
+                "To re-send from scratch, delete distributed_images.txt in the "
+                "distribute\\ folder and try again.")
+            return
+
         msg = (f"{len(created)} zip(s) created in:\n{out_path}\n"
+               f"{len(newly_sent)} new image(s) packaged; "
+               f"{skipped_done} skipped (already sent or validated).\n"
                f"Max {BATCH} images per zip.")
         if errors:
             msg += "\n\nErrors:\n" + "\n".join(errors)
@@ -4504,6 +4865,7 @@ Thank you for your help.
         all_preview  = []
         all_merge    = {}
         failed_zips  = []
+        read_ok      = []
 
         for zip_path in zips:
             try:
@@ -4515,7 +4877,7 @@ Thank you for your help.
                     sp = csv_path.parent.name
                     if sp == "validation":
                         continue
-                    with open(csv_path, newline="", encoding="utf-8") as f:
+                    with open(csv_path, newline="", encoding="utf-8-sig") as f:
                         rows = list(csv.DictReader(f))
                     validated = [r for r in rows
                                  if r.get("validated","").strip().lower() == "yes"]
@@ -4533,9 +4895,12 @@ Thank you for your help.
                     if sp not in all_merge:
                         all_merge[sp] = {}
                     for r in validated:
-                        all_merge[sp][r["detection_id"]] = r
+                        did = r.get("detection_id","").strip()
+                        if did:
+                            all_merge[sp][did] = r
 
                 shutil.rmtree(tmp, ignore_errors=True)
+                read_ok.append(zip_path)
 
             except Exception as e:
                 failed_zips.append(f"{zip_path.name}: {e}")
@@ -4564,7 +4929,7 @@ Thank you for your help.
             local_csv = local_val / sp / "validation.csv"
             if not local_csv.exists():
                 continue
-            with open(local_csv, newline="", encoding="utf-8") as f:
+            with open(local_csv, newline="", encoding="utf-8-sig") as f:
                 local_rows = list(csv.DictReader(f))
                 f.seek(0)
                 fields = list(csv.DictReader(f).fieldnames)
@@ -4581,9 +4946,11 @@ Thank you for your help.
                 writer.writerows(local_rows)
             merged_sp.append(sp)
 
-        # Move processed zips from collect/ to collect/processed/
-        # and remove corresponding zip from distribute/
-        for zip_path in zips:
+        # Move successfully-read zips from collect/ to collect/processed/ and
+        # remove the matching zip from distribute/. Zips that failed to process
+        # are left in collect/ so they can be retried and stay visible as
+        # outstanding in distribute/.
+        for zip_path in read_ok:
             try:
                 zip_path.rename(processed_dir / zip_path.name)
             except Exception:
@@ -4604,7 +4971,11 @@ Thank you for your help.
                   f"{', '.join(merged_sp)}\n"
                   f"Zips moved to collect\\processed\\ and removed from distribute\\\n"
                   f"Master results_with_ids.csv updated.")
-        self._dist_import_log.config(text=result, fg=C["forest"])
+        if failed_zips:
+            result += (f"\n\n{len(failed_zips)} zip(s) could not be read and were "
+                       f"left in collect\\ to retry:\n" + "\n".join(failed_zips))
+        self._dist_import_log.config(
+            text=result, fg=C["forest"] if not failed_zips else C["error"])
         messagebox.showinfo("Collect complete", result)
 
     def _dist_import(self):
@@ -4659,7 +5030,7 @@ Thank you for your help.
                         f"{sp}: no validation.csv found in zip")
                     continue
 
-                with open(tmp_csv, newline="", encoding="utf-8") as f:
+                with open(tmp_csv, newline="", encoding="utf-8-sig") as f:
                     imported_rows = list(csv.DictReader(f))
 
                 validated = [r for r in imported_rows
@@ -4704,10 +5075,10 @@ Thank you for your help.
                 if not local_csv.exists():
                     continue
 
-                with open(local_csv, newline="", encoding="utf-8") as f:
+                with open(local_csv, newline="", encoding="utf-8-sig") as f:
                     local_rows = list(csv.DictReader(f))
-                    fields     = list(csv.DictReader(
-                        open(local_csv, encoding="utf-8")).fieldnames)
+                    f.seek(0)
+                    fields     = list(csv.DictReader(f).fieldnames)
 
                 # Build lookup from imported data
                 imported_lookup = {

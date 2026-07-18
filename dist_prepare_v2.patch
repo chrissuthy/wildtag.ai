@@ -1,0 +1,51 @@
+--- /mnt/user-data/uploads/wildtag.py	2026-07-17 12:52:39.520995000 +0000
++++ wildtag.py	2026-07-17 12:54:05.690318395 +0000
+@@ -4360,14 +4360,25 @@
+             # validation.csv, so batch filenames (named by detection_id)
+             # can be resolved to the image_id sibling lookups need
+             det_to_img = {}
++            sp_rows, sp_fields = [], []
+             sp_csv = sp_dir / "validation.csv"
+             if sp_csv.exists():
+                 try:
+-                    sp_rows, _ = load_csv(sp_csv)
++                    sp_rows, sp_fields = load_csv(sp_csv)
+                     det_to_img = {r.get("detection_id",""): r.get("image_id","")
+                                   for r in sp_rows}
+                 except Exception:
+                     det_to_img = {}
++            # image_name -> row, so each batch can ship only its own manifest
++            # rows. Copying the whole validation.csv into every batch is what
++            # left volunteers with rows for images not in their zip ("Image
++            # not found"). Fall back to shipping the raw file if we couldn't
++            # parse it.
++            rows_by_name = {r.get("image_name",""): r for r in sp_rows}
++            if sp_fields:
++                other_meta = [f for f in meta if f.name != "validation.csv"]
++            else:
++                other_meta = meta
+ 
+             for idx in range(n_batches):
+                 batch = imgs[idx*BATCH:(idx+1)*BATCH]
+@@ -4428,7 +4439,20 @@
+                         # no recompression, this is the big speedup.
+                         for f in batch:
+                             zf.write(f, f"validation/{sp}/{f.name}")
+-                        for f in meta:
++                        # Per-batch validation.csv: only the rows for images in
++                        # THIS batch, so the manifest matches the images shipped.
++                        if sp_fields:
++                            buf = io.StringIO()
++                            w = csv.DictWriter(buf, fieldnames=sp_fields)
++                            w.writeheader()
++                            for f in batch:
++                                r = rows_by_name.get(f.name)
++                                if r:
++                                    w.writerow(r)
++                            zf.writestr(f"validation/{sp}/validation.csv",
++                                        buf.getvalue(), compress_type=DEF)
++                        # Other metadata (valid_species.txt etc.) copied as-is
++                        for f in other_meta:
+                             zf.write(f, f"validation/{sp}/{f.name}")
+                         if has_env:
+                             for f in validate_env.rglob("*"):

@@ -1,0 +1,145 @@
+%% ---------------------------------------------------------------------------
+%% mee.sty
+%% House style implementing the submission requirements of
+%% Methods in Ecology and Evolution (British Ecological Society / Wiley).
+%%
+%% NOTE ON PROVENANCE
+%% Methods in Ecology and Evolution does not publish an official LaTeX class.
+%% Wiley's instruction is that authors submit a PDF generated from their own
+%% source files, and supply the .tex/.bib/.bbl on acceptance. This style file
+%% therefore does not imitate the journal's typeset look; it implements the
+%% things the journal actually asks for at submission:
+%%
+%%   - double line spacing
+%%   - continuous line numbering (for reviewers)
+%%   - generous margins
+%%   - APA (author-year) citation style, which MEE uses
+%%   - a numbered abstract environment (MEE requires points 1-4)
+%%   - a lightweight note macro for drafting placeholders
+%%
+%% Safe to keep for submission; delete \draftnotes when the draft is final.
+%% ---------------------------------------------------------------------------
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{mee}[2026/07/11 Methods in Ecology and Evolution submission style]
+
+%% ---- Options --------------------------------------------------------------
+%% [anonymous]  hides the author block (MEE is double anonymised)
+%% [final]      turns off line numbers and draft notes
+\newif\ifmee@anonymous \mee@anonymousfalse
+\newif\ifmee@final     \mee@finalfalse
+\DeclareOption{anonymous}{\mee@anonymoustrue}
+\DeclareOption{final}{\mee@finaltrue}
+\ProcessOptions\relax
+
+%% ---- Page layout ----------------------------------------------------------
+\RequirePackage[a4paper,margin=2.5cm]{geometry}
+\RequirePackage{setspace}
+\RequirePackage[T1]{fontenc}
+\RequirePackage{lmodern}
+\RequirePackage{microtype}
+
+%% ---- Line numbers for review ----------------------------------------------
+\RequirePackage{lineno}
+\ifmee@final\else
+  \AtBeginDocument{\linenumbers}
+\fi
+
+%% ---- Tables, figures, links -----------------------------------------------
+\RequirePackage{booktabs}
+\RequirePackage{longtable}
+\RequirePackage{array}
+\RequirePackage{graphicx}
+\RequirePackage{caption}
+\RequirePackage{xcolor}
+\RequirePackage[hidelinks]{hyperref}
+\captionsetup{font=small,labelfont=bf,justification=raggedright,
+              singlelinecheck=false}
+
+%% ---- Section headings -----------------------------------------------------
+\RequirePackage{titlesec}
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\itshape}{\thesubsubsection}{1em}{}
+
+%% ---- References: the BES's own BibTeX style -------------------------------
+%% besjournals.bst is the British Ecological Society's author-year BibTeX
+%% style. It ships with TeX Live, so it is available on Overleaf with no
+%% extra files. It is a BibTeX (natbib) style, NOT a biblatex one, so the
+%% bibliography backend is bibtex and the document ends with:
+%%
+%%     \bibliographystyle{besjournals}
+%%     \bibliography{refs}
+%%
+%% Cite with natbib commands:
+%%     \citep{key}   -> (Author, 2024)
+%%     \citet{key}   -> Author (2024)
+\RequirePackage[round,authoryear]{natbib}
+\bibpunct{(}{)}{;}{a}{}{,}
+
+%% ---- Title block ----------------------------------------------------------
+\newcommand{\meetitle}[1]{\def\mee@title{#1}}
+\newcommand{\meerunning}[1]{\def\mee@running{#1}}
+\newcommand{\meeauthors}[1]{\def\mee@authors{#1}}
+\newcommand{\meeaffils}[1]{\def\mee@affils{#1}}
+\newcommand{\meecorresponding}[1]{\def\mee@corr{#1}}
+\newcommand{\meearticletype}[1]{\def\mee@type{#1}}
+\def\mee@title{}\def\mee@running{}\def\mee@authors{}
+\def\mee@affils{}\def\mee@corr{}\def\mee@type{}
+
+\newcommand{\makemeetitle}{%
+  \thispagestyle{plain}%
+  \begin{singlespace}
+  \noindent{\small\textsc{\mee@type}}\par\vspace{0.6em}
+  \noindent{\LARGE\bfseries\mee@title\par}\vspace{1em}
+  \ifmee@anonymous
+    \noindent{\itshape Author details removed for double-anonymised review.}\par
+  \else
+    \noindent\mee@authors\par\vspace{0.5em}
+    \noindent{\small\mee@affils}\par\vspace{0.5em}
+    \noindent{\small\textbf{Correspondence:} \mee@corr}\par
+  \fi
+  \vspace{0.5em}\noindent\rule{\textwidth}{0.4pt}
+  \end{singlespace}
+  \vspace{1em}
+}
+
+%% ---- Numbered abstract (MEE requires points 1-4) --------------------------
+\newenvironment{meeabstract}{%
+  \begin{singlespace}
+  \noindent\textbf{Abstract}\par\vspace{0.4em}
+  \begin{enumerate}[leftmargin=1.4em,itemsep=0.35em,topsep=0.2em]
+}{%
+  \end{enumerate}
+  \end{singlespace}\vspace{0.6em}
+}
+\RequirePackage{enumitem}
+
+\newcommand{\meekeywords}[1]{%
+  \begin{singlespace}
+  \noindent\textbf{Keywords:} #1\par
+  \end{singlespace}\vspace{0.6em}
+}
+
+%% ---- Drafting helpers -----------------------------------------------------
+%% \note{...}  an instruction to the authors, visible in the draft PDF.
+%% \cw         "(cite)" - a marker where a citation is needed.
+%% \tbd{...}   a placeholder for a number or name not yet decided.
+\definecolor{meenote}{RGB}{176,90,20}
+\definecolor{meecite}{RGB}{30,110,60}
+\definecolor{meetbd}{RGB}{170,40,40}
+
+\ifmee@final
+  \newcommand{\note}[1]{}
+  \newcommand{\cw}{}
+  \newcommand{\tbd}[1]{}
+\else
+  \newcommand{\note}[1]{{\color{meenote}\small\itshape [#1]}}
+  \newcommand{\cw}{{\color{meecite}\textbf{(cite)}}}
+  \newcommand{\tbd}[1]{{\color{meetbd}\textbf{[#1]}}}
+\fi
+
+%% ---- Body spacing ---------------------------------------------------------
+\AtBeginDocument{\doublespacing}
+
+\endinput
