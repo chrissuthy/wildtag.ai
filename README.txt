@@ -3,11 +3,11 @@ wildtag.ai - Camera Trap Image Processing
 Version 1.2 - July 2026
 
 DOWNLOAD
-  wildtag.ai installer:  https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip
+  wildtag.ai installer:  https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_Setup.exe
   User manual (PDF):     see wildtag_manual.pdf (included with the app)
 
   wildtag now ships without any model bundled in, so the installer is
-  smaller than before (about 640 MB to download, mostly the bundled Python
+  smaller than before (about 670 MB to download, mostly the bundled Python
   runtime). You download the model you want from inside the app the first
   time you use it (see MODELS below).
 
@@ -15,7 +15,7 @@ DOWNLOAD
 
 REQUIREMENTS
   - Windows 10 or 11 (64-bit)
-  - Disk space: the installer download is about 640 MB. After installing,
+  - Disk space: the installer download is about 670 MB. After installing,
     the app uses roughly 2.8 GB (mostly the bundled Python runtime), plus the
     model you download (DeepFaune about 1.1 GB, or SpeciesNet about 500 MB).
     So allow about 4 GB once DeepFaune is installed.
@@ -26,10 +26,8 @@ REQUIREMENTS
 
 GETTING STARTED
 
-  1. Download and unzip the installer
-     Download wildtag_installer.zip from the link above.
-     Right-click it and select "Extract All".
-     Inside you will find wildtag_Setup.exe.
+  1. Download the installer
+     Download wildtag_Setup.exe from the link above.
 
   2. Run the installer
      Double-click wildtag_Setup.exe and follow the prompts.

@@ -51,8 +51,7 @@ your users run to install, no unzipping the app,
 no cmd window, a proper desktop icon with the wildtag logo.</p>
 <h2>What the user experiences</h2>
 <ol>
-<li>They download and unzip <code>wildtag_installer.zip</code>, giving them
-   <code>wildtag_Setup.exe</code> (a single file).</li>
+<li>They download <code>wildtag_Setup.exe</code> (a single file).</li>
 <li>They double-click <code>wildtag_Setup.exe</code> -&gt; a normal Windows installer
    wizard appears (with your logo), click Next a couple of times.</li>
 <li>It installs, creates a desktop shortcut and Start Menu entry with the
@@ -78,9 +77,9 @@ no cmd window, a proper desktop icon with the wildtag logo.</p>
    because it is being used by another process" errors mid-build.</li>
 <li>Right-click <code>wildtag_installer.iss</code> -&gt; <strong>Compile</strong> (or open it in the
    Inno Setup Compiler and press <strong>F9</strong>).</li>
-<li>It churns for a few minutes while it compresses the folder (~640 MB output).</li>
+<li>It churns for a few minutes while it compresses the folder (~670 MB output).</li>
 <li>When done, look in the new <strong><code>Output\</code></strong> subfolder. You'll have:
-   - <code>wildtag_Setup.exe</code> (a single self-contained installer, ~640 MB)</li>
+   - <code>wildtag_Setup.exe</code> (a single self-contained installer, ~670 MB)</li>
 </ol>
 <p>This one file is the installer. It must be distributed and
    kept <strong>together</strong> in the same folder for the install to work.</p>
@@ -110,16 +109,12 @@ expect a roughly 1.6 GB larger installer.</p>
 <p>For public distribution, zip the two Output files into one download and
 host on Hugging Face:</p>
 <ol>
-<li>Zip them:
-   <code>powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"</code></li>
 <li>Create a public HF repo (e.g. <code>chrissuthy/wildtag-installer</code>) and upload
-   <code>wildtag_installer.zip</code> to it.</li>
+   <code>Output\wildtag_Setup.exe</code> to it (a single file, ~670 MB).</li>
 <li>The public download URL is then:
-   <code>https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip</code></li>
-<li>Tell users: download the zip (smaller now that no models are bundled;
-   confirm the size after your first build), unzip, run <code>wildtag_Setup.exe</code>,
-   and run it. On first launch they open the Models screen
-   and download a model while connected to the internet.</li>
+   <code>https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_Setup.exe</code></li>
+<li>Tell users: download and run <code>wildtag_Setup.exe</code>. On first launch they open
+   the Models screen and download a model while connected to the internet.</li>
 </ol>
 <h2>Notes and gotchas</h2>
 <ul>

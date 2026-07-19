@@ -6,8 +6,7 @@ no cmd window, a proper desktop icon with the wildtag logo.
 
 ## What the user experiences
 
-1. They download and unzip `wildtag_installer.zip`, giving them
-   `wildtag_Setup.exe` (a single file).
+1. They download `wildtag_Setup.exe` (a single file).
 2. They double-click `wildtag_Setup.exe` -> a normal Windows installer
    wizard appears (with your logo), click Next a couple of times.
 3. It installs, creates a desktop shortcut and Start Menu entry with the
@@ -34,9 +33,9 @@ No app folder to navigate, nothing to accidentally close.
    because it is being used by another process" errors mid-build.
 3. Right-click `wildtag_installer.iss` -> **Compile** (or open it in the
    Inno Setup Compiler and press **F9**).
-4. It churns for a few minutes while it compresses the folder (~640 MB output).
+4. It churns for a few minutes while it compresses the folder (~670 MB output).
 5. When done, look in the new **`Output\`** subfolder. You'll have:
-   - `wildtag_Setup.exe` (a single self-contained installer, ~640 MB)
+   - `wildtag_Setup.exe` (a single self-contained installer, ~670 MB)
 
    This one file is the installer. It must be distributed and
    kept **together** in the same folder for the install to work.
@@ -70,18 +69,12 @@ expect a roughly 1.6 GB larger installer.
 For public distribution, zip the two Output files into one download and
 host on Hugging Face:
 
-1. Zip them:
-   ```
-   powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"
-   ```
-2. Create a public HF repo (e.g. `chrissuthy/wildtag-installer`) and upload
-   `wildtag_installer.zip` to it.
-3. The public download URL is then:
-   `https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip`
-4. Tell users: download the zip (smaller now that no models are bundled;
-   confirm the size after your first build), unzip, run `wildtag_Setup.exe`,
-   and run it. On first launch they open the Models screen
-   and download a model while connected to the internet.
+1. Create a public HF repo (e.g. `chrissuthy/wildtag-installer`) and upload
+   `Output\wildtag_Setup.exe` to it (a single file, ~670 MB).
+2. The public download URL is then:
+   `https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_Setup.exe`
+3. Tell users: download and run `wildtag_Setup.exe`. On first launch they open
+   the Models screen and download a model while connected to the internet.
 
 ## Notes and gotchas
 
