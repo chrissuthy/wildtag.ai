@@ -155,10 +155,10 @@ def main():
             det_inf   = _df_det
             if not (det_dir / "deepfaune_detector.pt").exists():
                 raise FileNotFoundError(
-                    "The DeepFaune detector weights (deepfaune_detector.pt) were "
-                    f"not found in {det_dir}. DeepFaune-family classifiers share "
-                    "this detector, so please also install DeepFaune v1.4 from the "
-                    "Models tab (its detector is bundled with it).")
+                    "The shared DeepFaune detector (deepfaune_detector.pt) was "
+                    f"not found in {det_dir}. It is bundled with wildtag and used "
+                    "by all DeepFaune-family models, so this usually means the "
+                    "installation is incomplete - please reinstall wildtag.")
             det_model = det_inf.load(det_dir, device)
             log(f"\n-- Using DeepFaune detector (YOLOv8s, 22MB)")
             log(f"   Loaded.")

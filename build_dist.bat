@@ -69,7 +69,9 @@ if "%BUNDLE_MODELS%"=="1" (
     echo Copying models ^(this may take a while^)...
     xcopy /e /i /y /q models "%DIST%\models" >nul
 ) else (
-    echo Model-free build: skipping models\ ^(users download on first use^).
+    echo Model-free build: bundling only the shared DeepFaune detector.
+    if not exist "%DIST%\models\deepfaune-v1.4" mkdir "%DIST%\models\deepfaune-v1.4"
+    copy /y "models\deepfaune-v1.4\deepfaune_detector.pt" "%DIST%\models\deepfaune-v1.4\deepfaune_detector.pt" >nul
 )
 
 :: ── 5. wildtag_env ───────────────────────────────────────────────

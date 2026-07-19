@@ -285,29 +285,6 @@ def ensure_model(
 
     meta = get_model(model_id)
 
-    # DeepFaune-family classifiers (DeepFaune Europe, DeepFaune New England, and
-    # future fine-tunes) share one small YOLOv8s detector. It is not bundled in
-    # the model-free build, so ensure it is present in the shared location no
-    # matter which DeepFaune classifier is being set up. Done before the
-    # is_ready() early-return so a classifier downloaded earlier still gets it.
-    sd = meta.get("shared_detector")
-    if sd:
-        det_dir_shared = models_dir() / sd["dir"]
-        det_target     = det_dir_shared / sd["file"]
-        if not det_target.exists():
-            det_dir_shared.mkdir(parents=True, exist_ok=True)
-            log(f"\nFetching shared DeepFaune detector "
-                f"({sd['file']}, ~{sd.get('size_mb', 22)} MB)...")
-            download_weights(
-                model_id         = sd["dir"],
-                url              = sd["url"],
-                filename         = sd["file"],
-                expected_size_mb = sd.get("size_mb", 22),
-                checksum         = sd.get("checksum"),
-                log              = log,
-                progress         = progress,
-            )
-
     # Cache-bundle models (e.g. SpeciesNet) keep their real model files in a
     # library cache (kagglehub) outside models/, so the ready.json marker
     # alone isn't enough — the cache itself could be missing even if the

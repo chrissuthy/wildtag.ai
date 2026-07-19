@@ -65,16 +65,6 @@ REGISTRY = [
             "in camera-trap images. European Journal of Wildlife Research."
         ),
         "pip_deps":     ["torch", "torchvision", "timm", "Pillow", "numpy", "ultralytics"],
-        # DeepFaune-family classifiers share this small YOLOv8s detector. It is
-        # downloaded into the deepfaune-v1.4 folder and reused by every
-        # DeepFaune classifier (Europe, New England, future fine-tunes).
-        "shared_detector": {
-            "url":     "https://huggingface.co/chrissuthy/wildtag-dfne/resolve/main/deepfaune_detector.pt",
-            "file":    "deepfaune_detector.pt",
-            "size_mb": 22,
-            "dir":     "deepfaune-v1.4",
-            "checksum": None,
-        },
         "description":  (
             "European wildlife classifier covering 38 species/groups. "
             "Excellent performance for UK and European mammals."
@@ -153,14 +143,6 @@ REGISTRY = [
             "Code: code.usgs.gov/vtcfwru/deepfaune-new-england"
         ),
         "pip_deps":     ["torch", "torchvision", "timm", "Pillow", "numpy"],
-        # Shares the DeepFaune YOLOv8s detector (downloaded into deepfaune-v1.4).
-        "shared_detector": {
-            "url":     "https://huggingface.co/chrissuthy/wildtag-dfne/resolve/main/deepfaune_detector.pt",
-            "file":    "deepfaune_detector.pt",
-            "size_mb": 22,
-            "dir":     "deepfaune-v1.4",
-            "checksum": None,
-        },
         "description":  (
             "North-eastern North America wildlife classifier covering 24 taxa "
             "(incl. no-species). Re-trained from the DeepFaune backbone; "

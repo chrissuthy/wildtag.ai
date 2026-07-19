@@ -76,6 +76,12 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "*"; DestDir: "{app}"; \
     Excludes: "models\*,*\__pycache__\*,__pycache__\*,*.mp4,.git\*,*.log"; \
     Flags: recursesubdirs createallsubdirs ignoreversion
+; The one exception to excluding models\: the small (~22 MB) shared DeepFaune
+; YOLOv8s detector. Every DeepFaune-family classifier (Europe, New England,
+; future fine-tunes) uses it, so it is bundled here and works offline from
+; first launch. The large classifier weights are still downloaded on demand.
+Source: "models\deepfaune-v1.4\deepfaune_detector.pt"; \
+    DestDir: "{app}\models\deepfaune-v1.4"; Flags: ignoreversion
 ; (The installer exe itself and this script are excluded automatically
 ;  if you build into an Output\ subfolder, which is the default.)
 
