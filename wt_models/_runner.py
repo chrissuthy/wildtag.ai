@@ -147,8 +147,18 @@ def main():
             import sys as _sys
             _sys.path.insert(0, str(wt_root))
             from wt_models.deepfaune_v1_4 import detector as _df_det
-            det_dir   = models_dir / args.classifier
+            # DeepFaune-family classifiers (DeepFaune Europe, DeepFaune New
+            # England, and future DeepFaune fine-tunes) share the one DeepFaune
+            # YOLOv8s detector, whose weights live in the deepfaune-v1.4 model
+            # folder - not in each classifier's own folder.
+            det_dir   = models_dir / "deepfaune-v1.4"
             det_inf   = _df_det
+            if not (det_dir / "deepfaune_detector.pt").exists():
+                raise FileNotFoundError(
+                    "The DeepFaune detector weights (deepfaune_detector.pt) were "
+                    f"not found in {det_dir}. DeepFaune-family classifiers share "
+                    "this detector, so please also install DeepFaune v1.4 from the "
+                    "Models tab (its detector is bundled with it).")
             det_model = det_inf.load(det_dir, device)
             log(f"\n-- Using DeepFaune detector (YOLOv8s, 22MB)")
             log(f"   Loaded.")
@@ -793,21 +803,33 @@ def _load_module(model_id: str, model_dir: Path, wt_root: Path):
     # First look in the models/ download directory
     candidate = model_dir / "inference.py"
     if not candidate.exists():
-        # Try exact name conversion
-        builtin_name = model_id.replace("-", "_")
+        # Exact name conversion: hyphens AND dots -> underscores
+        # (e.g. "deepfaune-v1.4" -> "deepfaune_v1_4").
+        builtin_name = model_id.replace("-", "_").replace(".", "_")
         candidate = wt_root / "wt_models" / builtin_name / "inference.py"
 
     if not candidate.exists():
-        # Search all subfolders of wt_models for a matching inference.py
-        # Match on the base model name (e.g. "deepfaune" matches "deepfaune_v1_4")
-        base_name = model_id.split("-")[0].replace("-", "_")
+        # Last resort: search wt_models subfolders. Prefer an EXACT folder-name
+        # match to the converted id; only then fall back to a base-name prefix
+        # match. This stops e.g. "deepfaune-v1.4" from grabbing
+        # "deepfaune_new_england" just because both contain "deepfaune".
+        builtin_name  = model_id.replace("-", "_").replace(".", "_")
+        base_name     = model_id.split("-")[0].replace(".", "_")
         wt_models_dir = wt_root / "wt_models"
-        for subfolder in wt_models_dir.iterdir():
-            if subfolder.is_dir() and base_name in subfolder.name:
-                inf = subfolder / "inference.py"
-                if inf.exists():
-                    candidate = inf
-                    break
+        best = None
+        for subfolder in sorted(wt_models_dir.iterdir()):
+            if not subfolder.is_dir():
+                continue
+            inf = subfolder / "inference.py"
+            if not inf.exists():
+                continue
+            if subfolder.name == builtin_name:
+                best = inf
+                break
+            if best is None and subfolder.name.startswith(base_name):
+                best = inf
+        if best is not None:
+            candidate = best
 
     if not candidate.exists():
         raise FileNotFoundError(

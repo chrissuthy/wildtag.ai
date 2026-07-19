@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training a UK classifier from DeepFaune-Europe</title>
+<style>
+  :root{--canopy:#1B4332;--forest:#2D6A4F;--frost:#F0F4F1;--border:#D4E4DA;
+    --text:#1a1a1a;--muted:#5a6e63;--accent:#40916C;--warn:#b5451b;--leaf:#52B788;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;line-height:1.7;
+    color:var(--text);background:#fff;}
+  .cover{background:var(--canopy);color:#fff;padding:48px 56px 36px;}
+  .cover h1{font-size:28px;font-weight:700;}
+  .cover .meta{margin-top:16px;font-size:12px;color:#74C69D;text-transform:uppercase;
+    letter-spacing:1px;}
+  main{max-width:820px;margin:0 auto;padding:40px 48px 72px;}
+  h1{font-size:24px;font-weight:700;color:var(--canopy);margin:36px 0 12px;
+    padding-bottom:9px;border-bottom:2px solid var(--border);}
+  h2{font-size:20px;font-weight:700;color:var(--canopy);margin:32px 0 10px;
+    padding-bottom:7px;border-bottom:2px solid var(--border);}
+  h3{font-size:16px;font-weight:600;color:var(--forest);margin:22px 0 8px;}
+  main>h1:first-child{margin-top:0;}
+  p{margin-bottom:14px;}
+  ul,ol{padding-left:24px;margin-bottom:14px;}
+  li{margin-bottom:6px;}
+  strong{color:var(--canopy);}
+  a{color:var(--forest);}
+  code{background:var(--frost);border:1px solid var(--border);border-radius:4px;
+    padding:1px 6px;font-family:'Courier New',monospace;font-size:13px;color:var(--canopy);}
+  pre{background:var(--frost);border:1px solid var(--border);border-radius:6px;
+    padding:12px 14px;overflow-x:auto;margin:14px 0;}
+  pre code{background:none;border:none;padding:0;}
+  blockquote{background:var(--frost);border-left:4px solid var(--accent);
+    padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0;color:var(--text);}
+  blockquote p{margin:0;}
+  table{width:100%;border-collapse:collapse;margin:14px 0 20px;font-size:13.5px;}
+  th{background:var(--canopy);color:#fff;text-align:left;padding:8px 12px;}
+  td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+  tr:nth-child(even) td{background:var(--frost);}
+  footer{background:var(--canopy);color:#74C69D;text-align:center;padding:18px;
+    font-size:12px;margin-top:20px;}
+  @media print{.cover{page-break-after:avoid;}h1,h2{page-break-after:avoid;}}
+</style>
+</head>
+<body>
+<div class="cover"><h1>Training a UK classifier from DeepFaune-Europe</h1><div class="meta">Strategy · draft for discussion</div></div>
+<main>
+<p>A strategy for extending DeepFaune-Europe into a UK model, keeping the classes it
+already handles well and adding the UK-specific ones. Written to be shared with
+collaborators; nothing here is committed until we agree the class design.</p>
+<h2>1. The core idea</h2>
+<p>Do not train from scratch, and do not repeat what DeepFaune-UK v1.1 did. Start
+from the DeepFaune-Europe ViT-L DINOv2 backbone, which already produces
+excellent features for most UK fauna, and retrain a UK classification head on top
+of it. This is transfer learning, the same route Fergus took, but with three
+deliberate differences that matter for wildtag:</p>
+<ol>
+<li><strong>Keep the input at 224, not 518.</strong> DeepFaune-UK's 518-pixel ViT is why it was
+   unusably slow on a CPU. Staying at DeepFaune-Europe's 224 keeps wildtag fast on
+   field laptops. This single choice is the main reason to build our own rather
+   than adopt theirs.</li>
+<li><strong>Design the output classes around what is distinguishable on camera</strong>, with an
+   honest fallback to coarser labels when the animal cannot be told apart at
+   species level (Section 3).</li>
+<li><strong>Train on wildtag's own validated data</strong> (Section 4), closing a loop the rest
+   of the project already built.</li>
+</ol>
+<h2>2. What DeepFaune-Europe already gives us</h2>
+<p>DeepFaune-Europe's real classes (from wildtag's own label list) are 27 species,
+6 groups, and 5 special categories. Mapping your UK target list against them:</p>
+<p><strong>Already covered directly (keep as-is, no new training needed to recognise them):</strong>
+beaver, hedgehog, fox, otter, badger, wild boar, roe deer, red deer, fallow deer,
+bison, cow, sheep, goat, horse (as the <code>equid</code> group), dog, domestic cat, bird,
+and small mammal (as <code>micromammal</code>).</p>
+<p>That is roughly two-thirds of your list. The real work is only in three lumped
+groups that UK monitoring needs split to species, plus a handful of introduced
+species DeepFaune has never seen.</p>
+<p><strong>Groups DeepFaune lumps that UK work needs split:</strong></p>
+<table>
+<thead>
+<tr>
+<th>DeepFaune class</th>
+<th>UK species we need from it</th>
+<th>Difficulty</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>squirrel</code> (one class)</td>
+<td>red squirrel, grey squirrel</td>
+<td>Easy, data-rich, high conservation value</td>
+</tr>
+<tr>
+<td><code>lagomorph</code> (one class)</td>
+<td>rabbit, brown hare, mountain hare</td>
+<td>Rabbit easy; the two hares hard, esp. on IR</td>
+</tr>
+<tr>
+<td><code>mustelid</code> (one class)</td>
+<td>pine marten, polecat, American mink, stoat, weasel</td>
+<td>Marten/polecat/mink feasible; stoat vs weasel very hard</td>
+</tr>
+<tr>
+<td><code>cat</code> (domestic)</td>
+<td>domestic cat vs European/Scottish wildcat</td>
+<td>Very hard, conservation-sensitive</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Species not in DeepFaune-Europe at all (genuinely new heads):</strong>
+sika deer, water deer, Reeves's muntjac (all introduced, and muntjac/sika are
+data-rich in UK camera sets), and domestic pig (minor).</p>
+<p><strong>Subspecies:</strong> merge Scottish wildcat into a single wildcat class. Camera imagery
+cannot resolve <em>F. s. silvestris</em> from the European wildcat, and the wildcat vs
+feral/hybrid cat problem is already the hard part.</p>
+<h2>3. Output-class design (the part you flagged)</h2>
+<p>The central design decision is a <strong>taxonomy with abstention</strong>: train species-level
+heads, but let the model roll up to a coarser class when it is not confident,
+rather than emit a confident wrong species. This mirrors DeepFaune's own group
+classes and is honest ecology. Concretely:</p>
+<ul>
+<li>
+<p><strong>Confident, distinguishable species</strong> get their own class: fox, badger, the
+  three common deer, wild boar, hedgehog, otter, beaver, red squirrel, grey
+  squirrel, rabbit, pine marten, polecat, American mink, muntjac, sika, and the
+  domestics. These are where DeepFaune already excels or where UK data is plentiful.</p>
+</li>
+<li>
+<p><strong>Hard pairs get a species head plus a group fallback.</strong> When the top-1 species
+  confidence is below a tuned threshold, output the group instead of guessing:</p>
+</li>
+<li>stoat / weasel -&gt; fall back to <strong>"small mustelid"</strong></li>
+<li>brown hare / mountain hare -&gt; fall back to <strong>"hare"</strong></li>
+<li>domestic cat / wildcat -&gt; fall back to <strong>"cat (species uncertain)"</strong></li>
+<li>roe / red / fallow / sika / water deer at distance -&gt; fall back to <strong>"deer"</strong></li>
+</ul>
+<p>This gives a usable label on every image and prevents the confident-error
+  failure mode we just saw with DeepFaune-UK's ViT.</p>
+<ul>
+<li>
+<p><strong>Non-target catch-alls:</strong> bird, small mammal (micromammal), plus the pipeline's
+  existing person, vehicle, and empty. Keep these; they absorb everything outside
+  the target list.</p>
+</li>
+<li>
+<p><strong>Rare species with thin data</strong> (water deer, wildcat, bison, beaver): include
+  them as classes but expect wide confidence intervals, and lean on the abstention
+  fallback so a low-confidence beaver becomes "small mammal" or "empty" rather than
+  a false positive. Do not over-claim rare detections.</p>
+</li>
+</ul>
+<p>The result is a class list of roughly 30 to 35 species plus 4 to 6 group/non-target
+fallbacks. The exact cut between "own class" and "fallback only" should be data-
+driven: promote a species to its own class only once there is enough validated UK
+data to hold a test set for it.</p>
+<h2>4. Data strategy</h2>
+<p>The training data is the hard part, and this is where wildtag has an unfair
+advantage. The validation pipeline built in this project produces validated,
+species-labelled crops as a by-product of normal use. UKWO and MammalWeb validated
+data is therefore a ready training set, and every future validation round enlarges
+it. This is worth stating plainly for the paper: the tool bootstraps its own model.</p>
+<ul>
+<li><strong>Data-rich classes</strong> (grey squirrel, muntjac, sika, mink, fox, deer, badger):
+  abundant in UK camera sets, straightforward to assemble.</li>
+<li><strong>Data-poor classes</strong> (water deer, wildcat, beaver, bison, mountain hare):
+  supplement from partner archives, the DeepFaune-UK training crops if the CC-BY-NC
+  licence permits, and targeted collection. Wildlife-park footage can seed the very
+  rare ones.</li>
+<li><strong>Split by site, not by image.</strong> Camera-trap frames from one deployment are
+  near-duplicates; a random split leaks the test set. Hold out whole sites.</li>
+<li>Balance day RGB and night IR, and include motion blur, occlusion, juveniles,
+  multi-animal frames, and manufacturer overlays.</li>
+</ul>
+<h2>5. Training procedure</h2>
+<ol>
+<li><strong>Phase 1, linear probe.</strong> Freeze the DeepFaune-Europe backbone, train the new
+   UK head. Fast, needs modest data, cannot forget the European features.</li>
+<li><strong>Phase 2, partial fine-tune.</strong> Unfreeze the top few transformer blocks at a low
+   learning rate, only if the data supports it, to sharpen the hard UK splits
+   (red/grey squirrel, the mustelids). Watch for overfitting on rare classes.</li>
+<li><strong>Imbalance:</strong> class-balanced or focal loss, oversample rare classes, strong
+   augmentation tuned to camera-trap conditions (grayscale/IR, blur, crop jitter).</li>
+<li><strong>Inference parity:</strong> train on crops produced the same way wildtag crops at
+   inference (same detector, same box handling), so training and deployment match.</li>
+</ol>
+<h2>6. Evaluation</h2>
+<ul>
+<li>Site-disjoint held-out UK test set. Report per-class precision, recall, F1, and a
+  confusion matrix, with a focused look at the hard pairs.</li>
+<li>Report two accuracies: strict species-level, and effective accuracy allowing the
+  abstention fallback. The gap between them is the honest cost of the hard classes.</li>
+<li>Give rare classes explicit confidence intervals; do not headline a single number
+  the way the DeepFaune-UK card does.</li>
+</ul>
+<h2>7. Deployment into wildtag</h2>
+<p>Export in the format wildtag's existing DeepFaune (PyTorch) backend already loads,
+so the UK model drops into that backend rather than needing a new ONNX two-stage
+path. Add a registry entry with the UK class list, flip its <code>available</code> flag on,
+and it appears on the Models screen alongside the others. Because it stays at 224
+and reuses the European backbone, it will run at DeepFaune-Europe speed, not
+DeepFaune-UK speed.</p>
+<h2>8. Phased roadmap</h2>
+<ol>
+<li>Finalise the class taxonomy: the own-class vs fallback cut, and the abstention
+   thresholds. This document is the starting point.</li>
+<li>Assemble the dataset from validated wildtag/UKWO data plus supplements; split by
+   site.</li>
+<li>Phase-1 linear-probe baseline; read the confusion matrix.</li>
+<li>Iterate: add data for weak classes, phase-2 fine-tune, tune abstention.</li>
+<li>Site-disjoint evaluation and honest reporting.</li>
+<li>Export, register, ship.</li>
+</ol>
+<h2>Open questions for the group</h2>
+<ul>
+<li>Which hard pairs are worth a species head versus fallback-only, given the UK data
+  you can actually assemble? (Biggest lever on final quality.)</li>
+<li>Is the DeepFaune-UK CC-BY-NC training set usable as a data source, or do we build
+  ours purely from validated UKWO data?</li>
+<li>Do we want the abstention fallback exposed to the user (a confidence slider), or
+  fixed thresholds baked in?</li>
+</ul>
+</main>
+<footer>wildtag.ai &middot; css6@st-andrews.ac.uk</footer>
+</body>
+</html>

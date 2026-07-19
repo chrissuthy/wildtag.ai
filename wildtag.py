@@ -161,10 +161,22 @@ DEEPFAUNE_ALL_LABELS = (
     + sorted(_DEEPFAUNE_SPECIAL)
 )
 
+# DeepFaune New England: 24 taxa (normalised to match the DFNE backend's
+# CLASSES). Order here is for the validation dropdown only; the backend maps
+# model output indices to these same label strings.
+DFNE_ALL_LABELS = sorted([
+    "american_marten", "bird", "black_bear", "bobcat", "coyote",
+    "domestic_cat", "domestic_cow", "domestic_dog", "fisher", "gray_fox",
+    "gray_squirrel", "human", "moose", "mouse", "opossum", "raccoon",
+    "red_fox", "red_squirrel", "skunk", "snowshoe_hare", "white_tailed_deer",
+    "wild_boar", "wild_turkey", "no_species",
+])
+
 # Model ID → full label list mapping
 # None means "use observed labels only, ordered dynamically"
 MODEL_CLASS_LISTS = {
     "deepfaune-v1.4": DEEPFAUNE_ALL_LABELS,
+    "deepfaune-new-england": DFNE_ALL_LABELS,
     "speciesnet-global": None,
 }
 
@@ -1952,6 +1964,24 @@ class WildTagApp(tk.Tk):
 
         tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", padx=16, pady=8)
 
+        # Help / guides — open the bundled documents with the system viewer
+        tk.Label(parent, text="HELP", font=self._fonts["small"],
+                 bg=C["white"], fg=C["mist"], padx=16).pack(anchor="w", pady=(0,2))
+        if validate_only:
+            help_links = [("Volunteer guide", "volunteer_instructions")]
+        else:
+            help_links = [("User manual",     "wildtag_manual"),
+                          ("Quick reference", "quick_reference"),
+                          ("Volunteer guide", "volunteer_instructions")]
+        for _label, _base in help_links:
+            tk.Button(parent, text=_label,
+                      command=lambda b=_base: self._open_doc(b),
+                      font=self._fonts["small"], bg=C["white"], fg=C["forest"],
+                      relief="flat", padx=16, pady=3, anchor="w",
+                      activebackground=C["frost"], cursor="hand2").pack(fill="x")
+
+        tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", padx=16, pady=8)
+
         # Theme toggle
         def _toggle_theme():
             if self._job_running:
@@ -1985,6 +2015,28 @@ class WildTagApp(tk.Tk):
         tk.Label(parent, text="wildtag.ai  v0.1",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["mist"], padx=16).pack(anchor="w")
+
+    def _open_doc(self, basename):
+        """Open a bundled help document (PDF preferred, HTML fallback) with the
+        system's default viewer. Shows a friendly message if it isn't found."""
+        base = Path(__file__).parent
+        for ext in (".pdf", ".html"):
+            p = base / (basename + ext)
+            if p.exists():
+                try:
+                    import os
+                    os.startfile(str(p))            # Windows default app
+                except AttributeError:
+                    import webbrowser
+                    webbrowser.open(p.as_uri())      # non-Windows fallback
+                except Exception as e:
+                    messagebox.showerror("Could not open",
+                        f"Could not open {p.name}:\n{e}")
+                return
+        messagebox.showinfo("Guide not found",
+            f"{basename} was not found in the wildtag folder.\n\n"
+            "The guides are installed alongside wildtag; if this is a "
+            "volunteer copy, the guide may not be included.")
 
     def _show_pane(self, key):
         # Guard against a stale/removed pane key (e.g. "map" saved by an
@@ -2374,29 +2426,62 @@ class WildTagApp(tk.Tk):
         tk.Label(geo_row, text="Geographic filter (optional)",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"]).pack(anchor="w")
-        self._geofence_var = tk.StringVar(value="GBR")
-        geo_options = [
-            ("GBR - United Kingdom", "GBR"),
-            ("None - no filter",     ""),
-        ]
-        om_geo = tk.OptionMenu(
-            geo_row, self._geofence_var,
-            *[o[0] for o in geo_options])
+        self._geofence_var = tk.StringVar(value="")        # holds the CODE
+        self._geo_display_var = tk.StringVar(value="")     # holds shown text
+        self._geo_options = [("None - no filter", "")]
+
+        om_geo = tk.OptionMenu(geo_row, self._geo_display_var, "None - no filter")
         om_geo.config(font=self._fonts["label"], bg=C["frost"],
                       fg=C["canopy"], relief="flat",
                       activebackground=C["frost"],
-                      highlightthickness=0, width=30)
+                      highlightthickness=0, width=42)
         om_geo["menu"].config(font=self._fonts["small"],
                               bg=C["white"], fg=C["canopy"])
-        # Map display names back to codes on selection
+        self._om_geo = om_geo
+        om_geo.pack(anchor="w", pady=(2, 0))
+
+        # Display selection -> code
         def _geo_selected(*_):
-            selected = self._geofence_var.get()
-            for name, code in geo_options:
-                if selected == name:
+            disp = self._geo_display_var.get()
+            for display, code in self._geo_options:
+                if display == disp:
                     self._geofence_var.set(code)
                     return
-        self._geofence_var.trace_add("write", _geo_selected)
-        om_geo.pack(anchor="w", pady=(2, 0))
+            self._geofence_var.set("")
+        self._geo_display_var.trace_add("write", _geo_selected)
+
+        # Rebuild the geofence choices for whichever model is selected. Only
+        # models with a meaningful region filter offer a code; region-scoped
+        # models (DeepFaune New England, the future UK model) are already the
+        # geographic filter, so they show a self-explaining "None needed".
+        def _rebuild_geo(*_):
+            try:
+                from wt_models.registry import classifiers
+                name = self._cls_model_var.get()
+                mid, regions = "", []
+                for m in classifiers():
+                    if m["name"] == name:
+                        mid, regions = m["id"], m.get("regions", [])
+                        break
+                if mid in ("deepfaune-v1.4", "speciesnet-global"):
+                    opts = [("None - no filter", ""),
+                            ("GBR - United Kingdom", "GBR")]
+                else:
+                    opts = [("None needed - model is regional", "")]
+            except Exception:
+                opts = [("None - no filter", "")]
+            self._geo_options = opts
+            menu = self._om_geo["menu"]
+            menu.delete(0, "end")
+            for display, _code in opts:
+                menu.add_command(
+                    label=display,
+                    command=lambda d=display: self._geo_display_var.set(d))
+            self._geo_display_var.set(opts[0][0])   # also sets the code via trace
+
+        self._rebuild_geo = _rebuild_geo
+        self._cls_model_var.trace_add("write", lambda *a: self._rebuild_geo())
+        _rebuild_geo()   # initial populate for the default model
         tk.Label(geo_row,
                  text="  Filters out species unlikely to be found in the selected region.",
                  font=self._fonts["small"], bg=C["white"],
@@ -4223,6 +4308,22 @@ class WildTagApp(tk.Tk):
             writer.writeheader()
             writer.writerows(self._val_rows)
 
+        # In a volunteer package, also drop a return-ready copy at the top
+        # level of the unzipped folder (next to wildtag.py), so the file to
+        # send back is easy to find rather than buried under
+        # validation\<species>\. Keep the exact unique name of the batch CSV
+        # (e.g. fox_001_validation.csv) so returns never clash.
+        try:
+            validate_only = not (Path(__file__).parent / "wildtag_env").exists()
+            if validate_only and self._val_csv_path:
+                top = Path(__file__).parent / self._val_csv_path.name
+                with open(top, "w", newline="", encoding="utf-8") as f:
+                    w = csv.DictWriter(f, fieldnames=fields)
+                    w.writeheader()
+                    w.writerows(self._val_rows)
+        except Exception:
+            pass
+
         # Clear corrections and selection for completed rows
         for row in batch:
             self._val_corrections.pop(row.get("detection_id",""), None)
@@ -4534,8 +4635,10 @@ class WildTagApp(tk.Tk):
             if not self._dist_out_var.get():
                 self._dist_out_var.set(p)
 
-    def _make_readme(self, species_name: str) -> str:
+    def _make_readme(self, species_name: str, csv_name: str = None) -> str:
         sp_display = species_name.replace("_", " ").title()
+        if not csv_name:
+            csv_name = f"{species_name}_validation.csv"
         return f"""wildtag.ai - Validation package
 ================================
 
@@ -4575,10 +4678,19 @@ WHAT TO DO
 SENDING BACK
 ------------
 
-1. Find the {species_name} folder (not the whole unzipped folder).
-2. Right-click it and choose Send to > Compressed (zipped) folder.
-3. Name the zip:  {species_name}_validated.zip
-4. Send the zip back to the project lead.
+After you have marked your batches complete, wildtag puts a small results
+file in this main folder (the one you unzipped) called:
+
+      {csv_name}
+
+1. Send just that one file back to the project lead.
+   You can rename it if you like, the name does not matter.
+2. That small file contains all your validations. You do NOT need to send
+   the images back.
+
+If you would rather not hunt for that file, you can instead right-click the
+whole folder, choose Send to > Compressed (zipped) folder, and send that.
+Either way works.
 
 NOTES
 -----
@@ -4612,6 +4724,16 @@ Thank you for your help.
 
         out_path.mkdir(parents=True, exist_ok=True)
         (project / "collect").mkdir(parents=True, exist_ok=True)
+
+        # Per-batch manifest: which detection_ids each zip contains, so collect
+        # can later tell which distributed batches are fully validated (by
+        # detection_id, independent of what returned files are named).
+        manifest_path = out_path / "_manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8")) \
+                       if manifest_path.exists() else {}
+        except Exception:
+            manifest = {}
 
         species_dirs = [
             d for d in sorted(val_path.iterdir())
@@ -4744,6 +4866,12 @@ Thank you for your help.
                             zf.write(wildtag_py,  "wildtag.py", compress_type=DEF)
                         if wildtag_ico.exists():
                             zf.write(wildtag_ico, "wildtag.ico")
+                        # Volunteer guide, so the sidebar Help link opens it.
+                        for _g in ("volunteer_instructions.pdf",
+                                   "volunteer_instructions.html"):
+                            _gp = script_dir / _g
+                            if _gp.exists():
+                                zf.write(_gp, _g, compress_type=DEF)
 
                         # Include wt_models (Python files only, no weights)
                         wt_models_dir = script_dir / "wt_models"
@@ -4759,7 +4887,8 @@ Thank you for your help.
                                "validate_env\\python.exe wildtag.py\r\n"
                                "pause\r\n")
                         zf.writestr("Run wildtag.bat", bat)
-                        zf.writestr(f"README_{sp}.txt", self._make_readme(sp))
+                        zf.writestr(f"README_{sp}.txt",
+                                    self._make_readme(sp, f"{sp}{sfx}_validation.csv"))
                         if siblings_baked:
                             zf.writestr("validation/.siblings_baked", "1")
                         # Ship the project-level custom species list so
@@ -4820,6 +4949,13 @@ Thank you for your help.
                                 zf.writestr("results_with_ids.csv", buf.getvalue())
                     created.append(zname)
                     newly_sent.extend(f.name for f in batch)
+                    # Record this batch's detection_ids for completion tracking.
+                    _dids = []
+                    for f in batch:
+                        r = rows_by_name.get(f.name)
+                        if r and r.get("detection_id"):
+                            _dids.append(r["detection_id"])
+                    manifest[zname] = _dids
                 except Exception as e:
                     errors.append(f"{zname}: {e}")
 
@@ -4828,6 +4964,12 @@ Thank you for your help.
             with open(sent_log, "a", encoding="utf-8") as f:
                 for name in newly_sent:
                     f.write(name + "\n")
+
+        # Persist the per-batch manifest for completion tracking in collect.
+        try:
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        except Exception:
+            pass
 
         if not created:
             self._dist_prep_log.config(
@@ -5008,11 +5150,44 @@ Thank you for your help.
         self._val_folder = local_val
         self._val_merge_to_master()
 
+        # Mark distributed batches complete: a batch whose every detection is
+        # now validated moves from distribute/ to distribute/completed/, so
+        # distribute/ only ever shows batches still awaiting validation.
+        completed = []
+        try:
+            distribute_dir = project / "distribute"
+            man_path = distribute_dir / "_manifest.json"
+            if man_path.exists():
+                manifest = json.loads(man_path.read_text(encoding="utf-8"))
+                validated_dids = {
+                    r.get("detection_id", "")
+                    for rows, _ in local_csvs.values() for r in rows
+                    if r.get("validated", "").strip().lower() == "yes"}
+                comp_dir = distribute_dir / "completed"
+                for zname, dids in manifest.items():
+                    zp = distribute_dir / zname
+                    if zp.exists() and dids and \
+                            all(d in validated_dids for d in dids):
+                        comp_dir.mkdir(exist_ok=True)
+                        try:
+                            dest = comp_dir / zname
+                            if dest.exists():
+                                dest.unlink()
+                            zp.rename(dest)
+                            completed.append(zname)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
         result = (f"Merged {matched} validated detections "
                   f"({n_corr} corrections) into {len(touched)} "
                   f"species folder(s).\n"
                   f"Files moved to collect\\processed\\.\n"
                   f"Master results_with_ids.csv updated.")
+        if completed:
+            result += (f"\n{len(completed)} distributed batch(es) now fully "
+                       f"validated, moved to distribute\\completed\\.")
         if unmatched:
             result += f"\n{unmatched} unmatched row(s) ignored."
         if failed:
@@ -6297,35 +6472,30 @@ draw();
             from wt_models.downloader import cache_bundle_present
             _meta = _get_model(cls_id)
 
-            # SpeciesNet is a GPU-scale model. On a CPU-only machine it runs
-            # very slowly (roughly 10+ seconds per image: it runs a full
-            # MegaDetector plus a large classifier plus geolocation on every
-            # image, with no empty-frame skipping). DeepFaune is far faster
-            # on CPU and excellent for UK/European wildlife. If the user
-            # picked SpeciesNet with the device set to CPU, warn them up
-            # front and offer to switch, before any download happens.
+            # SpeciesNet covers 2000+ species worldwide. Running the full
+            # global model is heavy, so on a CPU-only machine it can be slow.
+            # A geographic filter (country) narrows the candidate species and
+            # can substantially speed it up. Only prompt when the user hasn't
+            # already set a geofence, and let them cancel to set one.
             _dev = getattr(self, "_device_var", None)
             _dev = _dev.get().split()[0] if _dev else "cpu"
-            if _meta.get("cache_bundle") and _dev != "cuda":
-                use_df = messagebox.askyesno(
-                    "SpeciesNet is slow without a GPU",
-                    "SpeciesNet runs very slowly on a computer without a "
-                    "graphics card (GPU), often around 10 seconds or more per "
-                    "image. No GPU was detected on this machine, so a project "
-                    "of a few thousand images could take many hours.\n\n"
-                    "For UK and European wildlife, DeepFaune is far faster "
-                    "and highly accurate, and it's already installed.\n\n"
-                    "Switch to DeepFaune (recommended)?\n\n"
-                    "Yes  -  use DeepFaune (fast)\n"
-                    "No   -  continue with SpeciesNet anyway (slow)")
-                if use_df:
-                    cls_id = "deepfaune-v1.4"
-                    df = next((m["name"] for m in REGISTRY
-                               if m["id"] == "deepfaune-v1.4"), None)
-                    if df:
-                        self._cls_model_var.set(df)
-                    _meta = _get_model(cls_id)  # re-fetch so the download
-                                                # check below sees DeepFaune
+            _geo = getattr(self, "_geofence_var", None)
+            _geo = _geo.get() if _geo else ""
+            if _meta.get("cache_bundle") and _dev != "cuda" and not _geo:
+                proceed = messagebox.askyesno(
+                    "SpeciesNet: the global model can be slow",
+                    "SpeciesNet classifies 2000+ species worldwide, so running "
+                    "the full global model can take a long time per image, "
+                    "especially on a computer without a graphics card (GPU).\n\n"
+                    "Setting a Geographic filter (your country) in the Run "
+                    "options is recommended: it narrows SpeciesNet to species "
+                    "from your region and can substantially reduce the "
+                    "processing time.\n\n"
+                    "Continue with SpeciesNet now?\n\n"
+                    "Yes  -  continue as set\n"
+                    "No   -  cancel, so I can set a geographic filter first")
+                if not proceed:
+                    return
 
             _cb = _meta.get("cache_bundle")
             if _cb and not cache_bundle_present(_cb):

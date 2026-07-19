@@ -200,7 +200,7 @@
 <div class="callout warn">If the Run tab's model dropdown is empty, it means no model has been downloaded yet. Open the Models tab and download one first.</div>
 
 <h3>Which model to choose</h3>
-<p>For UK and European wildlife, download <strong>DeepFaune v1.4</strong>. It is fast on any computer, works offline, and is well-calibrated for local species. Choose <strong>SpeciesNet</strong> only if you need worldwide coverage and have a graphics card (GPU); it is very slow on a computer without one. See Appendix A for details of each model.</p>
+<p><strong>DeepFaune v1.4</strong> is fast on any computer, works offline, and is well-calibrated for UK and European species - a good default for European surveys. <strong>SpeciesNet</strong> covers 2000+ species worldwide; choose it for global coverage or taxonomy-level results. The full global model can be slow per image, especially without a GPU, so setting a Geographic filter (your country) is recommended to speed it up. See Appendix A for details of each model.</p>
 
 <h2 id="run">4. Running the Pipeline</h2>
 
@@ -214,11 +214,11 @@
 <table>
   <tr><th>Model</th><th>Best for</th></tr>
   <tr><td>DeepFaune v1.4</td><td>UK and European surveys (recommended); fast on any computer</td></tr>
-  <tr><td>SpeciesNet Global</td><td>Worldwide coverage or taxonomy-level rollup; needs a GPU to be practical</td></tr>
+  <tr><td>SpeciesNet Global</td><td>Worldwide coverage or taxonomy-level rollup; use a geographic filter to keep it fast (a GPU helps for large projects)</td></tr>
 </table>
 
 <div class="callout">Models are not bundled with wildtag. You download the one you want from the Models tab the first time you use it (DeepFaune about 1.1 GB, SpeciesNet about 500 MB), after which it works offline. Models marked "Planned" on the Models tab are in development and cannot yet be downloaded.</div>
-<div class="callout warn"><strong>SpeciesNet needs a GPU to be practical.</strong> On a computer without a graphics card it is very slow, often 10 or more seconds per image, so a large project could take many hours. wildtag warns you and offers DeepFaune instead when you pick SpeciesNet on a machine with no GPU. For UK and European wildlife, DeepFaune is the recommended choice.</div>
+<div class="callout"><strong>Keeping SpeciesNet fast.</strong> SpeciesNet classifies 2000+ species worldwide, so running the full global model can take a long time per image, especially without a GPU. Set a <strong>Geographic filter</strong> (your country) in the Run options: it narrows SpeciesNet to species from your region and substantially speeds up processing. wildtag reminds you of this if you start a SpeciesNet run with no filter set. A GPU further helps for very large projects.</div>
 
 <h3>Set confidence thresholds</h3>
 <ul>
@@ -244,7 +244,7 @@
 </ul>
 
 <h3>Running</h3>
-<p>Click Run wildtag. The log panel shows live progress. With DeepFaune, a few dozen images take a couple of minutes on CPU. SpeciesNet is much slower on CPU (often 10+ seconds per image) because it runs a full detector, classifier, and geolocation pipeline on every image; it is best run on a GPU.</p>
+<p>Click Run wildtag. The log panel shows live progress. With DeepFaune, a few dozen images take a couple of minutes on CPU. SpeciesNet does more work per image (a full detector, classifier, and geolocation pipeline over 2000+ species), so it is slower; setting a Geographic filter (your country) narrows the candidates and speeds it up considerably, and a GPU helps further for large projects.</p>
 <div class="callout">If a run is interrupted (for example the computer restarts partway through sorting images into species folders), wildtag can recover. When you reopen the project it detects the incomplete validation folder and offers to finish it, keeping the images already sorted and only completing what is missing.</div>
 
 <h2 id="validate">5. Validating Results</h2>

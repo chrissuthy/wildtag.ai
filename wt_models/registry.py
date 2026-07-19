@@ -65,6 +65,16 @@ REGISTRY = [
             "in camera-trap images. European Journal of Wildlife Research."
         ),
         "pip_deps":     ["torch", "torchvision", "timm", "Pillow", "numpy", "ultralytics"],
+        # DeepFaune-family classifiers share this small YOLOv8s detector. It is
+        # downloaded into the deepfaune-v1.4 folder and reused by every
+        # DeepFaune classifier (Europe, New England, future fine-tunes).
+        "shared_detector": {
+            "url":     "https://huggingface.co/chrissuthy/wildtag-dfne/resolve/main/deepfaune_detector.pt",
+            "file":    "deepfaune_detector.pt",
+            "size_mb": 22,
+            "dir":     "deepfaune-v1.4",
+            "checksum": None,
+        },
         "description":  (
             "European wildlife classifier covering 38 species/groups. "
             "Excellent performance for UK and European mammals."
@@ -125,15 +135,37 @@ REGISTRY = [
     },
     {
         "id":           "deepfaune-new-england",
-        "name":         "DeepFaune New England (planned)",
+        "name":         "DeepFaune New England",
         "type":         "classifier",
         "regions":      ["North America (New England)"],
-        "architecture": "DeepFaune-derived",
-        "license":      "see USGS release",
-        "available":    False,
-        "description":  "North-eastern US fauna classifier "
-                        "(code.usgs.gov/vtcfwru/deepfaune-new-england). "
-                        "Not yet integrated.",
+        "architecture": "ViT-Large DINOv2",
+        "input_size":   182,
+        "classes_url":  None,
+        "weights_url":  "https://huggingface.co/chrissuthy/wildtag-dfne/resolve/main/dfne_weights_v1_0.pth",
+        "weights_file": "dfne_weights_v1_0.pth",
+        "weights_size": 1130,
+        "checksum":     None,
+        "license":      "Public Domain (USGS; U.S. Government work)",
+        "citation":     (
+            "Clarfeld, L.A., Gieder, K.D., Fuller, A., Tracey, J.A. & "
+            "Donovan, T.M. (2025) DeepFaune New England. U.S. Geological "
+            "Survey software and data release. doi:10.5066/P1E7NDAF. "
+            "Code: code.usgs.gov/vtcfwru/deepfaune-new-england"
+        ),
+        "pip_deps":     ["torch", "torchvision", "timm", "Pillow", "numpy"],
+        # Shares the DeepFaune YOLOv8s detector (downloaded into deepfaune-v1.4).
+        "shared_detector": {
+            "url":     "https://huggingface.co/chrissuthy/wildtag-dfne/resolve/main/deepfaune_detector.pt",
+            "file":    "deepfaune_detector.pt",
+            "size_mb": 22,
+            "dir":     "deepfaune-v1.4",
+            "checksum": None,
+        },
+        "description":  (
+            "North-eastern North America wildlife classifier covering 24 taxa "
+            "(incl. no-species). Re-trained from the DeepFaune backbone; "
+            "openly licensed (USGS). Runs at 182px, CPU-friendly."
+        ),
     },
     {
         "id":           "deepfauna-subsa",

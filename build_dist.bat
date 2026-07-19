@@ -52,6 +52,8 @@ copy /y wildtag.bat             "%DIST%\wildtag.bat"             >nul
 copy /y README.txt              "%DIST%\README.txt"              >nul
 copy /y deployment_template.csv "%DIST%\deployment_template.csv" >nul
 if exist wildtag_manual.pdf     copy /y wildtag_manual.pdf  "%DIST%\wildtag_manual.pdf" >nul
+if exist quick_reference.pdf    copy /y quick_reference.pdf "%DIST%\quick_reference.pdf" >nul
+if exist volunteer_instructions.pdf copy /y volunteer_instructions.pdf "%DIST%\volunteer_instructions.pdf" >nul
 if exist setup_gpu.bat          copy /y setup_gpu.bat        "%DIST%\setup_gpu.bat"      >nul
 if exist fix_shebangs.py        copy /y fix_shebangs.py      "%DIST%\fix_shebangs.py"    >nul
 if exist fix_shebangs.bat       copy /y fix_shebangs.bat     "%DIST%\fix_shebangs.bat"   >nul

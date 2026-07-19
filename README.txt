@@ -67,13 +67,14 @@ MODELS
      users.
 
   SpeciesNet (Google, global species classification)
-     Covers species worldwide (download about 500 MB). It is a large model
-     designed to run on a graphics card (GPU).
+     Covers 2000+ species worldwide (download about 500 MB). Choose this when
+     you need global coverage or taxonomy-level results.
 
-     Important: SpeciesNet is very slow on a computer without a GPU (often
-     10 or more seconds per image), so a large project could take many
-     hours. If your computer has no GPU, DeepFaune is strongly recommended
-     instead. wildtag will warn you about this when you select SpeciesNet.
+     Running the full global model can take a long time per image, especially
+     on a computer without a graphics card (GPU). Setting a Geographic filter
+     (your country) in the Run options is recommended: it narrows SpeciesNet
+     to species from your region and substantially speeds up processing. A GPU
+     also helps for very large projects.
 
   Some models (DeepFaune-UK, DeepFaune New England, DeepFauna Sub-Sahara)
   appear on the Models tab marked "Planned"; these are in development and
@@ -100,6 +101,6 @@ TROUBLESHOOTING
   - If a run is interrupted (for example, the computer restarts partway
     through), wildtag can resume where it left off. When you reopen the
     project, it will offer to finish building the validation folders.
-  - SpeciesNet running slowly is expected on computers without a GPU.
-    Switch to DeepFaune for much faster results on UK and European
-    wildlife.
+  - If SpeciesNet is slow, set a Geographic filter (your country) in the
+    Run options - it narrows the global model to your region's species and
+    speeds up processing considerably. A GPU helps for very large projects.
