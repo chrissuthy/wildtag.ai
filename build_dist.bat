@@ -49,6 +49,7 @@ echo Copying app files...
 copy /y wildtag.py              "%DIST%\wildtag.py"              >nul
 copy /y wildtag.ico             "%DIST%\wildtag.ico"             >nul
 copy /y wildtag.bat             "%DIST%\wildtag.bat"             >nul
+if exist wildtag_launch.vbs copy /y wildtag_launch.vbs "%DIST%\wildtag_launch.vbs" >nul
 copy /y README.txt              "%DIST%\README.txt"              >nul
 copy /y deployment_template.csv "%DIST%\deployment_template.csv" >nul
 if exist wildtag_manual.pdf     copy /y wildtag_manual.pdf  "%DIST%\wildtag_manual.pdf" >nul

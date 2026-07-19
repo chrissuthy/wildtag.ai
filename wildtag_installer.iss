@@ -48,14 +48,10 @@ OutputBaseFilename=wildtag_Setup
 ; where install time is a real user pain point, fast is the better balance.
 Compression=lzma2/fast
 SolidCompression=yes
-; This bundle is multi-GB (models + Python env), past Inno's ~2GB
-; single-file cap. DiskSpanning=yes lets the output exceed that by
-; splitting into slices; DiskSliceSize=max makes each slice as large as
-; allowed so there are as few files as possible. The user still runs
-; wildtag_Setup.exe; any extra .bin slices sit beside it and are used
-; automatically. Distribute ALL the produced files together.
-DiskSpanning=yes
-DiskSliceSize=max
+; The model-free build (app + Python env, no bundled model weights) compresses
+; to well under Inno's ~2 GB single-file cap, so no disk-spanning is needed: the
+; output is a single wildtag_Setup.exe. If a future build ever bundles models
+; again and exceeds ~2 GB, re-enable DiskSpanning=yes / DiskSliceSize=max.
 LZMAUseSeparateProcess=yes
 
 [Languages]
@@ -65,23 +61,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Files]
-; Ship the wildtag.ai folder, but EXCLUDE things that shouldn't be bundled:
-;  - ALL model weights (models\): this is a MODEL-FREE build. Every model
-;    (DeepFaune, SpeciesNet, and any future model) downloads on first use
-;    from the Models screen and is cached under models\ afterwards. The app
-;    creates models\ itself at runtime, so nothing there needs shipping.
-;  - __pycache__ (Python bytecode, regenerated automatically)
-;  - demo .mp4 videos (large, not needed to run the app)
-;  - the .git folder and log files (dev/runtime cruft)
-Source: "*"; DestDir: "{app}"; \
-    Excludes: "models\*,*\__pycache__\*,__pycache__\*,*.mp4,.git\*,*.log"; \
+; Package the CLEAN staging folder produced by build_dist.bat, which contains
+; only what the app needs to run: app files, wt_models, wildtag_env,
+; validate_env, the user docs, and the small (~22 MB) shared DeepFaune detector.
+; It deliberately excludes model weights, build scripts, the manuscript, git
+; files, and other dev clutter. RUN build_dist.bat FIRST, then compile this.
+Source: "wildtag_dist\*"; DestDir: "{app}"; \
+    Excludes: "*\__pycache__\*,__pycache__\*,*.log"; \
     Flags: recursesubdirs createallsubdirs ignoreversion
-; The one exception to excluding models\: the small (~22 MB) shared DeepFaune
-; YOLOv8s detector. Every DeepFaune-family classifier (Europe, New England,
-; future fine-tunes) uses it, so it is bundled here and works offline from
-; first launch. The large classifier weights are still downloaded on demand.
-Source: "models\deepfaune-v1.4\deepfaune_detector.pt"; \
-    DestDir: "{app}\models\deepfaune-v1.4"; Flags: ignoreversion
 ; (The installer exe itself and this script are excluded automatically
 ;  if you build into an Output\ subfolder, which is the default.)
 

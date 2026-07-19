@@ -1,13 +1,13 @@
 # Building the wildtag.ai installer
 
-This turns your wildtag.ai folder into a **`wildtag_Setup.exe`** (plus a
-`.bin` payload file) that your users run to install, no unzipping the app,
+This turns your wildtag.ai folder into a single **`wildtag_Setup.exe`** that
+your users run to install, no unzipping the app,
 no cmd window, a proper desktop icon with the wildtag logo.
 
 ## What the user experiences
 
 1. They download and unzip `wildtag_installer.zip`, giving them
-   `wildtag_Setup.exe` and a `.bin` file (kept together).
+   `wildtag_Setup.exe` (a single file).
 2. They double-click `wildtag_Setup.exe` -> a normal Windows installer
    wizard appears (with your logo), click Next a couple of times.
 3. It installs, creates a desktop shortcut and Start Menu entry with the
@@ -34,12 +34,11 @@ No app folder to navigate, nothing to accidentally close.
    because it is being used by another process" errors mid-build.
 3. Right-click `wildtag_installer.iss` -> **Compile** (or open it in the
    Inno Setup Compiler and press **F9**).
-4. It churns for a few minutes while it compresses the multi-GB folder.
+4. It churns for a few minutes while it compresses the folder (~640 MB output).
 5. When done, look in the new **`Output\`** subfolder. You'll have:
-   - `wildtag_Setup.exe` (a small launcher stub, ~7 MB)
-   - `wildtag_Setup-1.bin` (the compressed payload, most of the size)
+   - `wildtag_Setup.exe` (a single self-contained installer, ~640 MB)
 
-   Both files together are the installer. They must be distributed and
+   This one file is the installer. It must be distributed and
    kept **together** in the same folder for the install to work.
 
 ## What gets excluded (and why)
@@ -73,7 +72,7 @@ host on Hugging Face:
 
 1. Zip them:
    ```
-   powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe','Output\wildtag_Setup-1.bin' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"
+   powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"
    ```
 2. Create a public HF repo (e.g. `chrissuthy/wildtag-installer`) and upload
    `wildtag_installer.zip` to it.
@@ -81,7 +80,7 @@ host on Hugging Face:
    `https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip`
 4. Tell users: download the zip (smaller now that no models are bundled;
    confirm the size after your first build), unzip, run `wildtag_Setup.exe`,
-   keeping the `.bin` beside it. On first launch they open the Models screen
+   and run it. On first launch they open the Models screen
    and download a model while connected to the internet.
 
 ## Notes and gotchas
@@ -96,8 +95,8 @@ host on Hugging Face:
   increase. If you want the smallest possible download and don't mind slower
   installs, switch it back to `lzma2/max`.
 - **Disk spanning**: `DiskSpanning=yes` + `DiskSliceSize=max` split the
-  payload past Inno's ~2 GB single-file cap, hence the `.bin` slice. For a
-  payload of this size there is usually just one `.bin`.
+  The model-free payload compresses to well under Inno's ~2 GB single-file
+  cap, so the output is a single `.exe` with no `.bin` slices.
 - **Install location**: defaults to `%LOCALAPPDATA%\wildtag.ai` (no admin
   rights; the app can write its settings/outputs next to itself). Installing
   to `Program Files` needs admin rights and can cause permission issues

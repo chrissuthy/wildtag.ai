@@ -7,15 +7,18 @@ DOWNLOAD
   User manual (PDF):     see wildtag_manual.pdf (included with the app)
 
   wildtag now ships without any model bundled in, so the installer is
-  smaller than before. You download the model you want from inside the
-  app the first time you use it (see MODELS below).
+  smaller than before (about 640 MB to download, mostly the bundled Python
+  runtime). You download the model you want from inside the app the first
+  time you use it (see MODELS below).
+
+  The installer is a single file, wildtag_Setup.exe.
 
 REQUIREMENTS
   - Windows 10 or 11 (64-bit)
-  - Disk space: about 3 GB after installing, plus the model you download
-    (DeepFaune about 1.1 GB, or SpeciesNet about 500 MB). So roughly 4 GB
-    once DeepFaune is installed. The installer download itself is much
-    smaller, since no model is bundled.
+  - Disk space: the installer download is about 640 MB. After installing,
+    the app uses roughly 2.8 GB (mostly the bundled Python runtime), plus the
+    model you download (DeepFaune about 1.1 GB, or SpeciesNet about 500 MB).
+    So allow about 4 GB once DeepFaune is installed.
   - An internet connection is needed to download the installer, and the
     first time you download a model. After a model is downloaded it works
     fully offline. DeepFaune, the recommended model for UK and European
@@ -26,8 +29,7 @@ GETTING STARTED
   1. Download and unzip the installer
      Download wildtag_installer.zip from the link above.
      Right-click it and select "Extract All".
-     Inside you will find wildtag_Setup.exe and a .bin file. Keep these
-     two together in the same folder.
+     Inside you will find wildtag_Setup.exe.
 
   2. Run the installer
      Double-click wildtag_Setup.exe and follow the prompts.

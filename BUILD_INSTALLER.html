@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Building the wildtag.ai installer</title>
+<title>wildtag.ai - Build the installer</title>
 <style>
   :root{--canopy:#1B4332;--forest:#2D6A4F;--frost:#F0F4F1;--border:#D4E4DA;
     --text:#1a1a1a;--muted:#5a6e63;--accent:#40916C;--warn:#b5451b;--leaf:#52B788;}
@@ -44,15 +44,15 @@
 </style>
 </head>
 <body>
-<div class="cover"><h1>Building the wildtag.ai installer</h1><div class="meta">Developer guide</div></div>
+<div class="cover"><h1>wildtag.ai - Build the installer</h1></div>
 <main>
-<p>This turns your wildtag.ai folder into a <strong><code>wildtag_Setup.exe</code></strong> (plus a
-<code>.bin</code> payload file) that your users run to install, no unzipping the app,
+<p>This turns your wildtag.ai folder into a single <strong><code>wildtag_Setup.exe</code></strong> that
+your users run to install, no unzipping the app,
 no cmd window, a proper desktop icon with the wildtag logo.</p>
 <h2>What the user experiences</h2>
 <ol>
 <li>They download and unzip <code>wildtag_installer.zip</code>, giving them
-   <code>wildtag_Setup.exe</code> and a <code>.bin</code> file (kept together).</li>
+   <code>wildtag_Setup.exe</code> (a single file).</li>
 <li>They double-click <code>wildtag_Setup.exe</code> -&gt; a normal Windows installer
    wizard appears (with your logo), click Next a couple of times.</li>
 <li>It installs, creates a desktop shortcut and Start Menu entry with the
@@ -78,12 +78,11 @@ no cmd window, a proper desktop icon with the wildtag logo.</p>
    because it is being used by another process" errors mid-build.</li>
 <li>Right-click <code>wildtag_installer.iss</code> -&gt; <strong>Compile</strong> (or open it in the
    Inno Setup Compiler and press <strong>F9</strong>).</li>
-<li>It churns for a few minutes while it compresses the multi-GB folder.</li>
+<li>It churns for a few minutes while it compresses the folder (~640 MB output).</li>
 <li>When done, look in the new <strong><code>Output\</code></strong> subfolder. You'll have:
-   - <code>wildtag_Setup.exe</code> (a small launcher stub, ~7 MB)
-   - <code>wildtag_Setup-1.bin</code> (the compressed payload, most of the size)</li>
+   - <code>wildtag_Setup.exe</code> (a single self-contained installer, ~640 MB)</li>
 </ol>
-<p>Both files together are the installer. They must be distributed and
+<p>This one file is the installer. It must be distributed and
    kept <strong>together</strong> in the same folder for the install to work.</p>
 <h2>What gets excluded (and why)</h2>
 <p>This is a <strong>model-free</strong> build: no model weights are bundled. The app
@@ -112,14 +111,14 @@ expect a roughly 1.6 GB larger installer.</p>
 host on Hugging Face:</p>
 <ol>
 <li>Zip them:
-   <code>powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe','Output\wildtag_Setup-1.bin' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"</code></li>
+   <code>powershell "Compress-Archive -Path 'Output\wildtag_Setup.exe' -DestinationPath '%USERPROFILE%\Desktop\wildtag_installer.zip' -Force"</code></li>
 <li>Create a public HF repo (e.g. <code>chrissuthy/wildtag-installer</code>) and upload
    <code>wildtag_installer.zip</code> to it.</li>
 <li>The public download URL is then:
    <code>https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_installer.zip</code></li>
 <li>Tell users: download the zip (smaller now that no models are bundled;
    confirm the size after your first build), unzip, run <code>wildtag_Setup.exe</code>,
-   keeping the <code>.bin</code> beside it. On first launch they open the Models screen
+   and run it. On first launch they open the Models screen
    and download a model while connected to the internet.</li>
 </ol>
 <h2>Notes and gotchas</h2>
@@ -134,8 +133,8 @@ host on Hugging Face:</p>
   increase. If you want the smallest possible download and don't mind slower
   installs, switch it back to <code>lzma2/max</code>.</li>
 <li><strong>Disk spanning</strong>: <code>DiskSpanning=yes</code> + <code>DiskSliceSize=max</code> split the
-  payload past Inno's ~2 GB single-file cap, hence the <code>.bin</code> slice. For a
-  payload of this size there is usually just one <code>.bin</code>.</li>
+  The model-free payload compresses to well under Inno's ~2 GB single-file
+  cap, so the output is a single <code>.exe</code> with no <code>.bin</code> slices.</li>
 <li><strong>Install location</strong>: defaults to <code>%LOCALAPPDATA%\wildtag.ai</code> (no admin
   rights; the app can write its settings/outputs next to itself). Installing
   to <code>Program Files</code> needs admin rights and can cause permission issues
