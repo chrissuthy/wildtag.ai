@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 430" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2D6A4F"/>
+    </marker>
+    <marker id="arrowMuted" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#8aa294"/>
+    </marker>
+  </defs>
+
+  <!-- title -->
+  <text x="360" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#1B4332">How validation data moves through wildtag</text>
+
+  <!-- Run -> detection record -->
+  <rect x="30" y="60" width="150" height="54" rx="8" fill="#2D6A4F"/>
+  <text x="105" y="83" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Run</text>
+  <text x="105" y="101" text-anchor="middle" font-size="10" fill="#d7e7de">detect + classify</text>
+
+  <rect x="250" y="52" width="200" height="70" rx="8" fill="#fff" stroke="#2D6A4F" stroke-width="2"/>
+  <text x="350" y="76" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B4332">results_with_ids.csv</text>
+  <text x="350" y="94" text-anchor="middle" font-size="10" fill="#5a6e63">the detection record</text>
+  <text x="350" y="109" text-anchor="middle" font-size="10" fill="#5a6e63">written once, then fixed</text>
+
+  <line x1="180" y1="87" x2="248" y2="87" stroke="#2D6A4F" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Validate + Collect -> validation.db -->
+  <rect x="30" y="200" width="150" height="48" rx="8" fill="#40916C"/>
+  <text x="105" y="223" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Validate</text>
+  <text x="105" y="239" text-anchor="middle" font-size="9.5" fill="#e0efe7">in the app</text>
+
+  <rect x="30" y="262" width="150" height="48" rx="8" fill="#40916C"/>
+  <text x="105" y="285" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Collect</text>
+  <text x="105" y="301" text-anchor="middle" font-size="9.5" fill="#e0efe7">volunteer returns</text>
+
+  <rect x="250" y="230" width="200" height="66" rx="8" fill="#F0F4F1" stroke="#40916C" stroke-width="2"/>
+  <text x="350" y="255" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B4332">validation.db</text>
+  <text x="350" y="272" text-anchor="middle" font-size="10" fill="#5a6e63">your validation decisions</text>
+  <text x="350" y="287" text-anchor="middle" font-size="10" fill="#5a6e63">updated instantly</text>
+
+  <line x1="180" y1="224" x2="248" y2="250" stroke="#40916C" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="180" y1="286" x2="248" y2="276" stroke="#40916C" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- validation.db -> Summary/matrix (live) -->
+  <rect x="520" y="230" width="170" height="66" rx="8" fill="#fff" stroke="#52B788" stroke-width="2"/>
+  <text x="605" y="255" text-anchor="middle" font-size="12" font-weight="700" fill="#1B4332">Summary + matrix</text>
+  <text x="605" y="272" text-anchor="middle" font-size="10" fill="#5a6e63">read live, always</text>
+  <text x="605" y="287" text-anchor="middle" font-size="10" fill="#5a6e63">current, instant</text>
+  <line x1="450" y1="263" x2="518" y2="263" stroke="#40916C" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Export: detection record + db -> combined csv -->
+  <rect x="250" y="340" width="200" height="60" rx="8" fill="#2D6A4F"/>
+  <text x="350" y="366" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Export</text>
+  <text x="350" y="384" text-anchor="middle" font-size="10" fill="#d7e7de">rebuilds results_with_ids.csv</text>
+
+  <!-- inputs to export (dashed, on demand) -->
+  <path d="M350,122 L350,338" stroke="#8aa294" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrowMuted)"/>
+  <path d="M350,296 L350,338" stroke="#8aa294" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrowMuted)"/>
+  <text x="364" y="326" font-size="9" fill="#8aa294" font-style="italic">on demand</text>
+
+  <!-- legend -->
+  <text x="30" y="420" font-size="9.5" fill="#5a6e63">Solid arrows: happen automatically as you work.  Dashed: only when you click Export (or on a clean close).</text>
+</svg>

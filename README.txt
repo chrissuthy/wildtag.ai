@@ -54,6 +54,13 @@ GETTING STARTED
      - Choose the model you downloaded
      - Click Run wildtag
 
+  6. Validate and export results
+     - Open the Validate tab, review predictions, and Mark batch complete
+     - Validation is saved instantly as you work
+     - On the Summary tab, click Export results to write results_with_ids.csv
+       (wildtag also exports automatically when you close it). See Appendix C
+       of the manual for how validation data is stored and kept safe.
+
 MODELS
 
   wildtag does not come with a model built in. You choose and download one

@@ -89,6 +89,17 @@
     padding: 13px 16px; margin: 18px 0; border-radius: 0 6px 6px 0;
   }
   .callout.warn { border-color: var(--warn); background: #FFF5F0; }
+  .techbox {
+    border: 1px solid var(--border); background: #fbfdfc;
+    padding: 10px 14px; margin: 14px 0; border-radius: 6px;
+    font-size: 0.9em; color: var(--muted);
+  }
+  .techbox strong { color: var(--canopy); }
+  .techbox .tag {
+    display: inline-block; font-size: 0.72em; font-weight: 700;
+    letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent);
+    margin-right: 8px;
+  }
   .step { display: flex; gap: 14px; margin: 10px 0; align-items: flex-start; }
   .step-num {
     flex-shrink: 0; width: 26px; height: 26px; background: var(--canopy);
@@ -150,6 +161,7 @@
     <li><a href="#gdpr">Privacy and GDPR</a></li>
     <li><a href="#appendix-models">Appendix A: AI Models</a></li>
     <li><a href="#appendix-geofence">Appendix B: Geographic Filtering</a></li>
+    <li><a href="#appendix-validation">Appendix C: How wildtag Stores and Updates Validations</a></li>
   </ol>
 </nav>
 
@@ -371,7 +383,7 @@
 <h3>EXIF columns</h3>
 <p>wildtag automatically extracts camera metadata including <code>DateTimeOriginal</code>, <code>Make</code>, <code>Model</code>, GPS coordinates, <code>ExposureTime</code>, and <code>ISOSpeedRatings</code>.</p>
 
-<div class="callout">For analysis, use <code>correct_label</code> where populated, falling back to <code>label</code> where not. This gives the best available identification for every detection.</div>
+<div class="callout">For analysis, use <code>correct_label</code> where populated, falling back to <code>label</code> where not. This gives the best available identification for every detection. Note that <code>results_with_ids.csv</code> is produced by the <strong>Export results</strong> button on the Summary page (and automatically when you close wildtag); see Appendix C for how validation data is stored and exported.</div>
 
 <h2 id="gdpr">9. Privacy and GDPR</h2>
 
@@ -425,6 +437,111 @@
 </ul>
 
 <p>Broad group labels such as mustelid, lagomorph, and bird always pass the geofence since they are plausible anywhere. Select None to disable geofencing entirely.</p>
+
+
+<h2 id="appendix-validation">Appendix C: How wildtag Stores and Updates Validations</h2>
+
+<p>This appendix explains what happens to your validation work behind the scenes. You do not need to know any of this to use wildtag, but understanding it gives you confidence that your corrections are saved safely, that the results file is always reproducible, and that nothing is lost if the program closes unexpectedly.</p>
+
+<h3>Two kinds of data, kept apart</h3>
+
+<p>A camera-trap project holds two very different kinds of information. The first is the <strong>detection record</strong>: every animal wildtag found, with its image, location, time, box, and predicted label. For a large survey this can run to hundreds of thousands of rows, and once a run has finished it does not change. The second is your <strong>validation decisions</strong>: the handful of labels you confirm or correct as you review images. This is small, but it changes constantly as you work.</p>
+
+<p>wildtag keeps these two things in separate places. The detection record stays in <code>results_with_ids.csv</code>, written once when you run the pipeline. Your validation decisions go into a small validation store inside your project folder, updated the instant you make them. Keeping the frequently-changing part small and separate from the large, fixed part is what makes validating feel immediate even on very large projects.</p>
+
+<div style="text-align:center; margin:22px 0;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 430" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#2D6A4F"/>
+    </marker>
+    <marker id="arrowMuted" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#8aa294"/>
+    </marker>
+  </defs>
+
+  <!-- title -->
+  <text x="360" y="26" text-anchor="middle" font-size="15" font-weight="700" fill="#1B4332">How validation data moves through wildtag</text>
+
+  <!-- Run -> detection record -->
+  <rect x="30" y="60" width="150" height="54" rx="8" fill="#2D6A4F"/>
+  <text x="105" y="83" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Run</text>
+  <text x="105" y="101" text-anchor="middle" font-size="10" fill="#d7e7de">detect + classify</text>
+
+  <rect x="250" y="52" width="200" height="70" rx="8" fill="#fff" stroke="#2D6A4F" stroke-width="2"/>
+  <text x="350" y="76" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B4332">results_with_ids.csv</text>
+  <text x="350" y="94" text-anchor="middle" font-size="10" fill="#5a6e63">the detection record</text>
+  <text x="350" y="109" text-anchor="middle" font-size="10" fill="#5a6e63">written once, then fixed</text>
+
+  <line x1="180" y1="87" x2="248" y2="87" stroke="#2D6A4F" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Validate + Collect -> validation.db -->
+  <rect x="30" y="200" width="150" height="48" rx="8" fill="#40916C"/>
+  <text x="105" y="223" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Validate</text>
+  <text x="105" y="239" text-anchor="middle" font-size="9.5" fill="#e0efe7">in the app</text>
+
+  <rect x="30" y="262" width="150" height="48" rx="8" fill="#40916C"/>
+  <text x="105" y="285" text-anchor="middle" font-size="12.5" font-weight="700" fill="#fff">Collect</text>
+  <text x="105" y="301" text-anchor="middle" font-size="9.5" fill="#e0efe7">volunteer returns</text>
+
+  <rect x="250" y="230" width="200" height="66" rx="8" fill="#F0F4F1" stroke="#40916C" stroke-width="2"/>
+  <text x="350" y="255" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1B4332">validation.db</text>
+  <text x="350" y="272" text-anchor="middle" font-size="10" fill="#5a6e63">your validation decisions</text>
+  <text x="350" y="287" text-anchor="middle" font-size="10" fill="#5a6e63">updated instantly</text>
+
+  <line x1="180" y1="224" x2="248" y2="250" stroke="#40916C" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="180" y1="286" x2="248" y2="276" stroke="#40916C" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- validation.db -> Summary/matrix (live) -->
+  <rect x="520" y="230" width="170" height="66" rx="8" fill="#fff" stroke="#52B788" stroke-width="2"/>
+  <text x="605" y="255" text-anchor="middle" font-size="12" font-weight="700" fill="#1B4332">Summary + matrix</text>
+  <text x="605" y="272" text-anchor="middle" font-size="10" fill="#5a6e63">read live, always</text>
+  <text x="605" y="287" text-anchor="middle" font-size="10" fill="#5a6e63">current, instant</text>
+  <line x1="450" y1="263" x2="518" y2="263" stroke="#40916C" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Export: detection record + db -> combined csv -->
+  <rect x="250" y="340" width="200" height="60" rx="8" fill="#2D6A4F"/>
+  <text x="350" y="366" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Export</text>
+  <text x="350" y="384" text-anchor="middle" font-size="10" fill="#d7e7de">rebuilds results_with_ids.csv</text>
+
+  <!-- inputs to export (dashed, on demand) -->
+  <path d="M350,122 L350,338" stroke="#8aa294" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrowMuted)"/>
+  <path d="M350,296 L350,338" stroke="#8aa294" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arrowMuted)"/>
+  <text x="364" y="326" font-size="9" fill="#8aa294" font-style="italic">on demand</text>
+
+  <!-- legend -->
+  <text x="30" y="420" font-size="9.5" fill="#5a6e63">Solid arrows: happen automatically as you work.  Dashed: only when you click Export (or on a clean close).</text>
+</svg>
+</div>
+
+<div class="techbox"><span class="tag">Technical</span>The validation store is a standard <strong>SQLite database</strong> named <code>validation.db</code>, kept in your project folder next to <code>results_with_ids.csv</code>. It is part of your project: keep it with the project and include it in your backups.</div>
+
+<h3>What happens while you validate</h3>
+
+<p>Each time you mark a batch complete, or collect returned volunteer files, wildtag records those decisions in the validation store straight away. Because the store is small, this is effectively instant, there is no waiting while a large file is rewritten. The Summary page and the confusion matrix read directly from the store, so they always reflect your most recent work the moment you open them.</p>
+
+<h3>The results file is produced on demand</h3>
+
+<p>The combined <code>results_with_ids.csv</code> you use for analysis, the one where corrected labels appear in the <code>correct_label</code> column, is rebuilt from the detection record plus your validation store whenever you ask for it. You do this with the <strong>Export results</strong> button at the top of the Summary page. Exporting is the only moment wildtag rewrites the large file, so it is a deliberate step you control rather than something that slows down every correction.</p>
+
+<div class="callout"><strong>Treat the results file as an export.</strong> Because <code>results_with_ids.csv</code> is regenerated from your validation store, avoid hand-editing it in Excel: your edits would be overwritten the next time you export. The validation store is the source of truth. To validate, use the Validate tab; to get a fresh spreadsheet, click Export.</div>
+
+<h3>Checks when you open and close a project</h3>
+
+<p>wildtag looks after keeping your results file in step with your validations at two moments:</p>
+
+<div class="step"><div class="step-num">1</div><div class="step-body"><strong>When you open a project</strong> wildtag checks whether your results file is older than your latest validations. If it is (for example after an unexpected shutdown), it offers to export and bring the file up to date. The very first time you open an existing project, it also imports any validation work you had done before into the new store, so nothing from earlier is lost.</div></div>
+
+<div class="step"><div class="step-num">2</div><div class="step-body"><strong>When you close wildtag</strong> if you have validations that have not yet been written to the results file, wildtag exports them automatically as it closes, showing a brief "Saving results" message. This means your results file is normally fresh the next time you open it for analysis.</div></div>
+
+<div class="techbox"><span class="tag">Technical</span>Every write to the results file is <strong>atomic</strong>: wildtag writes to a temporary file and then swaps it into place in a single step. If a save is interrupted, the existing file is left untouched rather than half-written, so your results can never be left truncated.</div>
+
+<h3>Why this matters</h3>
+
+<ul>
+  <li><strong>Speed.</strong> Validating never waits on the large file, so it stays fast however big your survey grows.</li>
+  <li><strong>Safety.</strong> Your validation decisions live in their own store and are written the moment you make them, so an unexpected close does not lose recent work.</li>
+  <li><strong>Reproducibility.</strong> The results file can always be rebuilt from the detection record and the validation store, so it is never the only copy of anything important.</li>
+</ul>
 
 </main>
 </div>

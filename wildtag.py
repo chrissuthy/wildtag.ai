@@ -22,7 +22,7 @@ Run headless:
     python wildtag.py --no-gui --csv "S:/path/to/results.csv"
 """
 
-import os, sys, csv, re, hashlib, argparse, threading, json
+import os, sys, csv, re, hashlib, argparse, threading, json, sqlite3
 import subprocess as _subprocess
 from pathlib import Path
 from collections import defaultdict
@@ -1065,6 +1065,271 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  VALIDATION STORE (SQLite)  —  validation state lives here, not in the big CSV
+# ══════════════════════════════════════════════════════════════════════════════
+
+VALIDATION_DB_NAME = "validation.db"
+
+
+def _val_db_path(project_dir):
+    return Path(project_dir) / VALIDATION_DB_NAME
+
+
+def _val_db_connect(project_dir):
+    con = sqlite3.connect(str(_val_db_path(project_dir)))
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS validations (
+            detection_id  TEXT PRIMARY KEY,
+            label         TEXT,
+            correct_label TEXT,
+            validated     INTEGER DEFAULT 1,
+            source        TEXT,
+            updated_at    TEXT
+        )""")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_val ON validations(validated)")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY, value TEXT
+        )""")
+    con.commit()
+    return con
+
+
+def val_db_upsert(project_dir, rows, source):
+    """rows: iterable of dicts with detection_id, label, correct_label,
+    validated. Instant, keyed by detection_id."""
+    import datetime
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    con = _val_db_connect(project_dir)
+    try:
+        payload = []
+        for r in rows:
+            did = (r.get("detection_id") or "").strip()
+            if not did:
+                continue
+            if (r.get("validated") or "").strip().lower() != "yes":
+                continue
+            payload.append((did, (r.get("label") or "").strip(),
+                            (r.get("correct_label") or "").strip(),
+                            1, source, now))
+        if payload:
+            con.executemany(
+                "INSERT OR REPLACE INTO validations "
+                "(detection_id,label,correct_label,validated,source,updated_at) "
+                "VALUES (?,?,?,?,?,?)", payload)
+            con.execute("INSERT OR REPLACE INTO meta VALUES ('last_write',?)", (now,))
+            con.commit()
+        return len(payload)
+    finally:
+        con.close()
+
+
+def val_db_stats(project_dir):
+    """Validation counts + confusion-matrix pair counts, straight from the db."""
+    from collections import defaultdict
+    p = _val_db_path(project_dir)
+    if not p.exists():
+        return None
+    con = _val_db_connect(project_dir)
+    try:
+        cur = con.execute(
+            "SELECT label, correct_label, COUNT(*) FROM validations "
+            "WHERE validated=1 GROUP BY label, correct_label")
+        cm_all = defaultdict(int)
+        cm_errors = defaultdict(int)
+        n_validated = n_corrected = 0
+        for label, correct, cnt in cur.fetchall():
+            label = label or ""
+            correct = correct or ""
+            final = correct or label
+            n_validated += cnt
+            if label:
+                cm_all[(label, final)] += cnt
+            if correct:
+                n_corrected += cnt
+                cm_errors[(label, correct)] += cnt
+        return {
+            "n_validated": n_validated,
+            "n_corrected": n_corrected,
+            "cm_all":      dict(cm_all),
+            "cm_errors":   dict(cm_errors),
+        }
+    finally:
+        con.close()
+
+
+def val_db_corrections(project_dir):
+    """{detection_id: correct_label} for validated+corrected rows (map overlay)."""
+    p = _val_db_path(project_dir)
+    if not p.exists():
+        return {}
+    con = _val_db_connect(project_dir)
+    try:
+        cur = con.execute(
+            "SELECT detection_id, correct_label FROM validations "
+            "WHERE validated=1 AND correct_label != ''")
+        return {d: c for d, c in cur.fetchall()}
+    finally:
+        con.close()
+
+
+def val_db_map(project_dir):
+    """{detection_id: (validated, correct_label)} for export overlay."""
+    p = _val_db_path(project_dir)
+    if not p.exists():
+        return {}
+    con = _val_db_connect(project_dir)
+    try:
+        cur = con.execute(
+            "SELECT detection_id, validated, correct_label FROM validations")
+        return {d: (v, c or "") for d, v, c in cur.fetchall()}
+    finally:
+        con.close()
+
+
+def val_db_last_write(project_dir):
+    p = _val_db_path(project_dir)
+    if not p.exists():
+        return None
+    con = _val_db_connect(project_dir)
+    try:
+        cur = con.execute("SELECT value FROM meta WHERE key='last_write'")
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        con.close()
+
+
+def val_db_migrate_if_needed(project_dir, master_csv, val_folder, log=None):
+    """One-time, non-destructive import of existing validation state into the db,
+    from BOTH the master CSV's validated/correct_label columns and every
+    validation.csv in the validation folders. Runs only if the db is absent."""
+    project_dir = Path(project_dir)
+    if _val_db_path(project_dir).exists():
+        return False
+    imported = 0
+    # From the master CSV (collected returns already merged there)
+    try:
+        if master_csv and Path(master_csv).exists():
+            with open(master_csv, newline="", encoding="utf-8-sig") as f:
+                rows = [r for r in csv.DictReader(f)
+                        if (r.get("validated") or "").strip().lower() == "yes"]
+            imported += val_db_upsert(project_dir, rows, "migrated-csv")
+    except Exception as e:
+        if log: log(f"  migrate (csv): {e}")
+    # From the validation.csv folders (local work, freshest — wins ties)
+    try:
+        vf = Path(val_folder) if val_folder else None
+        if vf and vf.exists():
+            for sp_dir in sorted(vf.iterdir()):
+                if not sp_dir.is_dir():
+                    continue
+                vc = sp_dir / "validation.csv"
+                if not vc.exists():
+                    cand = sorted(sp_dir.glob("*_validation.csv"))
+                    vc = cand[0] if cand else None
+                if not vc or not vc.exists():
+                    continue
+                with open(vc, newline="", encoding="utf-8-sig") as f:
+                    imported += val_db_upsert(
+                        project_dir, list(csv.DictReader(f)), "migrated-folder")
+    except Exception as e:
+        if log: log(f"  migrate (folders): {e}")
+    if log:
+        log(f"  Validation store created; imported {imported} validated rows.")
+    return True
+
+
+def val_db_export_csv(project_dir, master_csv, log=None):
+    """Regenerate the combined results_with_ids.csv from the detection record +
+    the db overlay. Atomic write. Returns (rows_written, error_message);
+    error_message is None on success."""
+    master_csv = Path(master_csv)
+    if not master_csv.exists():
+        return (-1, "results_with_ids.csv not found.")
+    overlay = val_db_map(project_dir)
+    tmp = None
+    try:
+        # Read the whole master into memory and CLOSE it first. On Windows a
+        # file that is still open (here, or in Excel) cannot be replaced, so
+        # the read must finish before os.replace.
+        with open(master_csv, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            fields = list(reader.fieldnames or [])
+            rows   = list(reader)
+        for col in ("correct_label", "validated"):
+            if col not in fields:
+                fields.append(col)
+
+        fd, tmp = __import__("tempfile").mkstemp(
+            dir=str(master_csv.parent), prefix=".rwi_", suffix=".tmp")
+        os.close(fd)
+        n = 0
+        with open(tmp, "w", newline="", encoding="utf-8") as out:
+            w = csv.DictWriter(out, fieldnames=fields)
+            w.writeheader()
+            for r in rows:
+                did = (r.get("detection_id") or "").strip()
+                if did in overlay:
+                    validated, correct = overlay[did]
+                    r["validated"] = "yes" if validated else \
+                                     (r.get("validated") or "")
+                    if correct:
+                        r["correct_label"] = correct
+                w.writerow({k: r.get(k, "") for k in fields})
+                n += 1
+
+        try:
+            os.replace(tmp, master_csv)
+            tmp = None
+        except PermissionError:
+            return (-1,
+                    "Could not write results_with_ids.csv - it looks like the "
+                    "file is open in another program (e.g. Excel). Close it and "
+                    "try Export again.")
+
+        # stamp export time in the db meta
+        con = _val_db_connect(project_dir)
+        try:
+            import datetime
+            con.execute("INSERT OR REPLACE INTO meta VALUES ('last_export',?)",
+                        (datetime.datetime.now().isoformat(timespec="seconds"),))
+            con.commit()
+        finally:
+            con.close()
+        if log: log(f"  Exported {n:,} rows to {master_csv.name}.")
+        return (n, None)
+    except Exception as e:
+        if log: log(f"  export error: {e}")
+        return (-1, f"Export error: {e}")
+    finally:
+        try:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+
+def val_db_is_stale(project_dir):
+    """True if there are validations newer than the last export (hard-close
+    safety check on project open)."""
+    p = _val_db_path(project_dir)
+    if not p.exists():
+        return False
+    con = _val_db_connect(project_dir)
+    try:
+        lw = con.execute("SELECT value FROM meta WHERE key='last_write'").fetchone()
+        le = con.execute("SELECT value FROM meta WHERE key='last_export'").fetchone()
+        if not lw:
+            return False
+        if not le:
+            return True
+        return lw[0] > le[0]
+    finally:
+        con.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  GUI
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1076,6 +1341,12 @@ class WildTagApp(tk.Tk):
         self.configure(bg=C["frost"])
         self.minsize(820, 640)
         self.geometry("960x720")
+        # On a clean close, keep results_with_ids.csv in step with the
+        # validation store (auto-export if there are unexported validations).
+        try:
+            self.protocol("WM_DELETE_WINDOW", self._on_app_close)
+        except Exception:
+            pass
 
         # On Windows, a pythonw.exe-hosted app shows Python's icon in the
         # taskbar (Windows groups it under the python executable) even after
@@ -1593,6 +1864,34 @@ class WildTagApp(tk.Tk):
             "wildtag will now restart.")
         # Restart the process
         subprocess.Popen([sys.executable] + sys.argv, creationflags=_NO_WINDOW)
+        self.destroy()
+
+    def _on_app_close(self):
+        """On a clean close, export results if the validation store has
+        unexported changes, so the CSV is fresh next session."""
+        try:
+            proj = self._img_folder_var.get().strip() if getattr(
+                self, "_img_folder_var", None) else ""
+            if proj and val_db_is_stale(proj):
+                try:
+                    win = tk.Toplevel(self)
+                    win.title("Saving")
+                    tk.Label(win, text="Saving results to results_with_ids.csv…",
+                             padx=20, pady=(16, 8)).pack()
+                    from tkinter import ttk
+                    _pb = ttk.Progressbar(win, mode="indeterminate", length=260)
+                    _pb.pack(padx=20, pady=(0, 16))
+                    _pb.start(12)
+                    win.update()
+                except Exception:
+                    win = None
+                master = self._find_master_csv()
+                if master:
+                    val_db_export_csv(proj, master)  # best-effort on close
+                if win:
+                    win.destroy()
+        except Exception:
+            pass
         self.destroy()
 
     def _card(self, parent):
@@ -4212,65 +4511,6 @@ class WildTagApp(tk.Tk):
             self._val_batch += 1
             self._val_refresh_gallery()
 
-    def _val_merge_to_master(self):
-        """
-        Silently merge all validation CSVs back into results_with_ids.csv.
-        Uses detection_id as the join key. Runs in a background thread.
-        """
-        def _merge():
-            try:
-                if not self._val_folder:
-                    return
-                master_path = self._val_folder.parent / "results_with_ids.csv"
-                if not master_path.exists():
-                    return
-
-                # Read master
-                with open(master_path, newline="", encoding="utf-8-sig") as f:
-                    reader = csv.DictReader(f)
-                    master_fields = list(reader.fieldnames)
-                    master_rows   = list(reader)
-
-                # Add columns if not present
-                for col in ("correct_label", "validated"):
-                    if col not in master_fields:
-                        master_fields.append(col)
-                        for r in master_rows:
-                            r.setdefault(col, "")
-
-                # Build lookup from all validation CSVs
-                corrections = {}  # detection_id -> {correct_label, validated}
-                for sp_dir in self._val_folder.iterdir():
-                    val_csv = sp_dir / "validation.csv"
-                    if not sp_dir.is_dir() or not val_csv.exists():
-                        continue
-                    with open(val_csv, newline="", encoding="utf-8-sig") as f:
-                        for row in csv.DictReader(f):
-                            det_id = row.get("detection_id","").strip()
-                            if det_id:
-                                corrections[det_id] = {
-                                    "correct_label": row.get("correct_label",""),
-                                    "validated":     row.get("validated",""),
-                                }
-
-                # Apply to master
-                for row in master_rows:
-                    det_id = row.get("detection_id","").strip()
-                    if det_id in corrections:
-                        row["correct_label"] = corrections[det_id]["correct_label"]
-                        row["validated"]     = corrections[det_id]["validated"]
-
-                # Write back
-                with open(master_path, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=master_fields)
-                    writer.writeheader()
-                    writer.writerows(master_rows)
-
-            except Exception as e:
-                print(f"Merge error: {e}")
-
-        threading.Thread(target=_merge, daemon=True).start()
-
     def _val_complete_batch(self):
         if not self._val_csv_path or not self._val_rows:
             return
@@ -4329,8 +4569,15 @@ class WildTagApp(tk.Tk):
             self._val_corrections.pop(row.get("detection_id",""), None)
         self._val_selected.clear()
 
-        # Merge to master CSV
-        self._val_merge_to_master()
+        # Write the batch's validation state to the validation store (instant,
+        # keyed by detection_id). No big-CSV rewrite: the summary/matrix read
+        # from the store, and results_with_ids.csv is regenerated on Export.
+        try:
+            proj = self._img_folder_var.get().strip()
+            if proj:
+                val_db_upsert(proj, batch, "local")
+        except Exception:
+            pass
 
         # Check if this species is now fully validated
         still_pending = [r for r in self._val_rows
@@ -5146,9 +5393,13 @@ Thank you for your help.
             except Exception:
                 pass
 
-        # Propagate into the master results_with_ids.csv (also by detection_id).
+        # Propagate into the validation store by detection_id (instant). The
+        # big results_with_ids.csv is regenerated on Export, not here.
         self._val_folder = local_val
-        self._val_merge_to_master()
+        try:
+            val_db_upsert(project, list(merged.values()), "volunteer")
+        except Exception:
+            pass
 
         # Mark distributed batches complete: a batch whose every detection is
         # now validated moves from distribute/ to distribute/completed/, so
@@ -5326,9 +5577,21 @@ Thank you for your help.
 
             shutil.rmtree(tmp, ignore_errors=True)
 
-            # Set val_folder so merge to master works
+            # Write validated rows to the validation store (project = folder
+            # containing the validation dir). Big CSV is regenerated on Export.
             self._val_folder = local_val
-            self._val_merge_to_master()
+            try:
+                proj_dir = Path(local_val).parent
+                for sp_dir in Path(local_val).iterdir():
+                    if not sp_dir.is_dir():
+                        continue
+                    vc = sp_dir / "validation.csv"
+                    if vc.exists():
+                        with open(vc, newline="", encoding="utf-8-sig") as f:
+                            val_db_upsert(proj_dir, list(csv.DictReader(f)),
+                                          "volunteer")
+            except Exception:
+                pass
 
             result = (f"Merged {len(merged_sp)} species folder(s):\n"
                       f"{', '.join(merged_sp)}\n\n"
@@ -5644,6 +5907,21 @@ draw();
         self._wrap_label(inner,
             "This page shows what was processed and the current state of validation.",
             bg=C["frost"]).pack(fill="x", padx=24)
+
+        exp_row = tk.Frame(inner, bg=C["frost"])
+        exp_row.pack(fill="x", padx=24, pady=(8, 0))
+        self._summary_export_btn = tk.Button(
+            exp_row, text="Export results (results_with_ids.csv)",
+            command=lambda: self._summary_export_results(silent=False),
+            font=self._fonts["label"], bg=C["forest"], fg=C["white"],
+            activebackground=C["leaf"], activeforeground=C["white"],
+            relief="flat", padx=14, pady=5, cursor="hand2")
+        self._summary_export_btn.pack(side="left")
+        self._summary_export_lbl = tk.Label(
+            exp_row, text="", font=self._fonts["small"],
+            bg=C["frost"], fg=C["text_muted"])
+        self._summary_export_lbl.pack(side="left", padx=(10, 0))
+
         tk.Frame(inner, bg=C["frost"], height=12).pack()
 
         # ── Pipeline stats ───────────────────────────────────────────────
@@ -5785,9 +6063,46 @@ draw();
         master = Path(path) / "results_with_ids.csv"
         if not master.exists():
             return  # not processed yet, nothing to link
-        # Kick off the build (shows the linking popup). No on_ready callback
-        # needed: this is purely to warm the cache ahead of time.
-        self._get_aggregates()
+
+        # Validation store: create + migrate existing validation state on first
+        # open. Migration reads the big file once, so show the linking popup up
+        # front (immediate feedback) and do it in the background rather than a
+        # silent 45s wait. After first open the db exists and this is instant.
+        val_folder = Path(path) / "validation"
+
+        def _staleness_then_link():
+            try:
+                if val_db_is_stale(path):
+                    if messagebox.askyesno(
+                        "Results file out of date",
+                        "Your results file (results_with_ids.csv) is behind "
+                        "your latest validations. Export now to bring it up to "
+                        "date?"):
+                        self._summary_export_results(silent=False)
+            except Exception:
+                pass
+            self._get_aggregates()
+
+        if not _val_db_path(path).exists():
+            self._show_linking_popup()
+
+            def _bg_migrate():
+                try:
+                    val_db_migrate_if_needed(path, master, val_folder,
+                                             log=lambda m: None)
+                except Exception:
+                    pass
+                self.after(0, _after_migrate)
+
+            def _after_migrate():
+                self._hide_linking_popup()
+                _staleness_then_link()
+
+            threading.Thread(target=_bg_migrate, daemon=True).start()
+            return
+
+        _staleness_then_link()
+        return
 
         # Also check whether the validation folder is complete. A crash
         # during the sort step (e.g. an interrupted GPU run) can leave it
@@ -5866,24 +6181,17 @@ draw();
                      font=self._fonts["small"], bg=C["white"],
                      fg=C["text_muted"], wraplength=340,
                      justify="center").pack(padx=40, pady=(0,10))
-            bar = tk.Frame(frame, bg=C["mist"], height=4, width=320)
-            bar.pack(padx=40, pady=(0,24))
-            fill = tk.Frame(bar, bg=C["forest"], height=4)
-            fill.place(x=0, y=0, relheight=1, width=40)
 
-            # Indeterminate sliding bar
-            state = {"x": 0, "dir": 1}
-            def _pulse():
-                if not getattr(self, "_linking_popup", None):
-                    return
-                state["x"] += state["dir"] * 12
-                if state["x"] > 280: state["x"] = 280; state["dir"] = -1
-                elif state["x"] < 0: state["x"] = 0; state["dir"] = 1
-                try:
-                    fill.place(x=state["x"], y=0, relheight=1, width=40)
-                    win.after(40, _pulse)
-                except tk.TclError:
-                    pass
+            # Native indeterminate progressbar. Driven by Tk's own event loop
+            # via .start(), so it keeps moving through brief main-thread work
+            # and reliably reads as "something is happening".
+            from tkinter import ttk
+            pb = ttk.Progressbar(frame, mode="indeterminate", length=320)
+            pb.pack(padx=40, pady=(0,24))
+            try:
+                pb.start(12)   # ms between steps
+            except Exception:
+                pass
 
             self._linking_popup = win
             # Position before showing
@@ -5901,7 +6209,6 @@ draw();
             win.update()
             import time as _t
             self._linking_shown_at = _t.time()
-            _pulse()
         except Exception:
             self._linking_popup = None
 
@@ -6046,6 +6353,116 @@ draw();
         threading.Thread(target=_build, daemon=True).start()
         return None
 
+    def _validation_stats_from_folders(self, val_folder=None):
+        """Compute validation counts + confusion matrix from the small
+        per-species validation.csv files. These are tiny compared with the
+        master results_with_ids.csv, so this is fast and always current -
+        validation feedback never waits on the big file. Returns a dict, or
+        None if no validation folder is available."""
+        from collections import defaultdict
+        vf = val_folder or self._val_folder
+        if not vf:
+            m = self._find_master_csv()
+            if m:
+                vf = m.parent / "validation"
+        vf = Path(vf) if vf else None
+        if not vf or not vf.exists():
+            return None
+
+        n_validated = n_corrected = 0
+        cm_all    = defaultdict(int)
+        cm_errors = defaultdict(int)
+        for sp_dir in sorted(vf.iterdir()):
+            if not sp_dir.is_dir():
+                continue
+            vcsv = self._find_validation_csv(sp_dir)
+            if not vcsv:
+                continue
+            try:
+                with open(vcsv, newline="", encoding="utf-8-sig") as f:
+                    for r in csv.DictReader(f):
+                        if r.get("validated","").strip().lower() != "yes":
+                            continue
+                        n_validated += 1
+                        label   = r.get("label","").strip()
+                        correct = r.get("correct_label","").strip()
+                        if label:
+                            cm_all[(label, correct or label)] += 1
+                        if correct:
+                            n_corrected += 1
+                            cm_errors[(label, correct)] += 1
+            except Exception:
+                continue
+        return {
+            "n_validated": n_validated,
+            "n_corrected": n_corrected,
+            "cm_all":      dict(cm_all),
+            "cm_errors":   dict(cm_errors),
+        }
+
+    def _summary_export_results(self, silent=False):
+        """Regenerate results_with_ids.csv from the detection record + the
+        validation store (atomic). This is the only big-file write. Runs off the
+        main thread with a spinner so the UI stays responsive."""
+        master = self._find_master_csv()
+        if not master:
+            if not silent:
+                messagebox.showerror(
+                    "No results file",
+                    "No results_with_ids.csv found for this project.")
+            return
+        proj = str(Path(master).parent)
+
+        popup = None
+        if not silent:
+            try:
+                popup = tk.Toplevel(self)
+                popup.transient(self); popup.title("Exporting")
+                popup.configure(bg=C["white"]); popup.resizable(False, False)
+                tk.Label(popup, text="Exporting results…",
+                         font=self._fonts["h2"], bg=C["white"],
+                         fg=C["canopy"]).pack(padx=40, pady=(24, 6))
+                tk.Label(popup,
+                         text="Writing results_with_ids.csv. This can take a "
+                              "moment for large projects.",
+                         font=self._fonts["small"], bg=C["white"],
+                         fg=C["text_muted"], wraplength=340,
+                         justify="center").pack(padx=40, pady=(0, 10))
+                from tkinter import ttk
+                _pb = ttk.Progressbar(popup, mode="indeterminate", length=320)
+                _pb.pack(padx=40, pady=(0, 24)); _pb.start(12)
+                popup.update()
+            except Exception:
+                popup = None
+
+        result = {}
+        def _bg():
+            n, err = val_db_export_csv(proj, master)
+            result["n"], result["err"] = n, err
+            self.after(0, _done)
+
+        def _done():
+            if popup:
+                try: popup.destroy()
+                except Exception: pass
+            # Big file changed; drop the detection-aggregate cache.
+            self._agg_cache = None
+            self._agg_cache_key = None
+            n, err = result.get("n", -1), result.get("err")
+            if hasattr(self, "_summary_export_lbl"):
+                self._summary_export_lbl.config(
+                    text=(f"Exported {n:,} rows." if not err else "Export failed."))
+            if err:
+                if not silent:
+                    messagebox.showerror("Export failed", err)
+            elif not silent:
+                messagebox.showinfo(
+                    "Export complete",
+                    f"Wrote {n:,} rows to results_with_ids.csv, updated with "
+                    f"all current validations.")
+
+        threading.Thread(target=_bg, daemon=True).start()
+
     def _refresh_val_stats(self, auto=False):
         """Update validation stats + confusion matrix from precomputed
         aggregates. The heavy file parse happens at most once per file
@@ -6064,35 +6481,36 @@ draw();
             # find it, then fall through to the cache path
             self._last_output_dir = str(Path(p).parent / "validation")
 
-        agg = self._get_aggregates(
-            on_ready=lambda: self._refresh_val_stats(auto=True))
-        if agg is None:
-            # Parsing in the background; show a loading state in both the
-            # cards and the matrix area so nothing reads as a misleading
-            # zero. on_ready re-runs this once the cache is built.
-            self._stat_validated.set("…")
-            self._stat_pct.set("…")
-            self._stat_corrections.set("…")
-            for w in self._cm_frame.winfo_children():
-                w.destroy()
-            tk.Label(self._cm_frame,
-                     text="Loading validation data…",
-                     font=self._fonts["small"], bg=C["white"],
-                     fg=C["text_muted"], anchor="w").pack(fill="x")
-            return
+        # Validation counts + confusion matrix come LIVE from the validation
+        # store (SQLite): instant, always current, independent of the big CSV.
+        proj = self._img_folder_var.get().strip() if getattr(
+            self, "_img_folder_var", None) else ""
+        if not proj and master:
+            proj = str(Path(master).parent)
+        vstats = val_db_stats(proj) if proj else None
+        if vstats is None:
+            vstats = {"n_validated": 0, "n_corrected": 0,
+                      "cm_all": {}, "cm_errors": {}}
+        n_val  = vstats["n_validated"]
+        n_corr = vstats["n_corrected"]
 
-        total  = agg["n_rows"]
-        n_val  = agg["n_validated"]
-        n_corr = agg["n_corrected"]
-        pct    = f"{n_val/total*100:.1f}%" if total else "0%"
+        # Total detections (for the % only) from the cached detection aggregate;
+        # never block the summary on the big-file parse. Build it in the
+        # background if not cached yet and fill the percentage in when ready.
+        total = None
+        if self._agg_cache and self._agg_cache.get("n_rows"):
+            total = self._agg_cache["n_rows"]
+        else:
+            self._get_aggregates(
+                on_ready=lambda: self._refresh_val_stats(auto=True))
 
         self._stat_validated.set(f"{n_val:,}")
-        self._stat_pct.set(pct)
+        self._stat_pct.set(f"{n_val/total*100:.1f}%" if total else "…")
         self._stat_corrections.set(f"{n_corr:,}")
 
-        # Confusion matrix, from precomputed pair counts
+        # Confusion matrix, from the live store
         mode   = self._cm_mode.get()
-        counts = dict(agg["cm_errors"] if mode == "errors" else agg["cm_all"])
+        counts = dict(vstats["cm_errors"] if mode == "errors" else vstats["cm_all"])
         n_cm   = sum(counts.values())
 
         # Clear old matrix
@@ -6106,13 +6524,10 @@ draw();
                      fg=C["text_muted"], anchor="w").pack(fill="x")
             return
 
-        predicted_labels = sorted({p[0] for p in counts})
-        actual_labels    = sorted({p[1] for p in counts})
-        all_labels       = sorted(set(predicted_labels) | set(actual_labels))
-
-        # Render as a table
+        # Label set: every class that appears in either axis (>=1 count), so
+        # the grid is square (N x N).
+        all_labels = sorted({p[0] for p in counts} | {p[1] for p in counts})
         n = len(all_labels)
-        cell_w = 14
 
         tk.Label(self._cm_frame,
                  text=f"{'Errors only' if mode=='errors' else 'All validated'}  "
@@ -6120,40 +6535,53 @@ draw();
                       f"|  rows = AI prediction, columns = validated label",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"], anchor="w").pack(fill="x", pady=(0,6))
+        if n == 0:
+            return
 
-        tbl = tk.Frame(self._cm_frame, bg=C["white"])
-        tbl.pack(anchor="w")
+        # Canvas-drawn matrix: fixed square cells, vertical column headers,
+        # sized to fit the whole matrix (no scrolling) and centered.
+        CELL, HEADER, ROWLAB = 32, 100, 130
+        total_w = ROWLAB + n * CELL
+        total_h = HEADER + n * CELL
 
-        tk.Label(tbl, text="", width=22, bg=C["white"],
-                 font=self._fonts["small"]).grid(row=0, column=0, padx=1)
+        holder = tk.Frame(self._cm_frame, bg=C["white"])
+        holder.pack(pady=4)                      # centered by default
+        cv = tk.Canvas(holder, bg=C["white"], highlightthickness=0,
+                       width=total_w, height=total_h)
+        cv.pack()
+
+        short = lambda s: s.replace("_", " ")
+
+        # Column headers, rotated to read vertically
         for j, lbl in enumerate(all_labels):
-            short = lbl.replace("_"," ")[:12]
-            tk.Label(tbl, text=short, width=cell_w,
-                     bg=C["mist"], fg=C["canopy"],
-                     font=("Segoe UI", 8, "bold"),
-                     relief="flat", anchor="center").grid(
-                         row=0, column=j+1, padx=1, pady=1)
-
+            x = ROWLAB + j * CELL + CELL // 2
+            cv.create_text(x, HEADER - 6, text=short(lbl)[:18], angle=90,
+                           anchor="w", font=("Segoe UI", 8, "bold"),
+                           fill=C["canopy"])
+        # Row headers + cells
         for i, pred in enumerate(all_labels):
-            short = pred.replace("_"," ")[:20]
-            tk.Label(tbl, text=short, width=22,
-                     bg=C["mist"], fg=C["canopy"],
-                     font=("Segoe UI", 8, "bold"),
-                     anchor="w").grid(row=i+1, column=0, padx=1, pady=1)
+            y = HEADER + i * CELL + CELL // 2
+            cv.create_text(ROWLAB - 8, y, text=short(pred)[:20], anchor="e",
+                           font=("Segoe UI", 8, "bold"), fill=C["canopy"])
             for j, actual in enumerate(all_labels):
-                count = counts.get((pred, actual), 0)
+                count   = counts.get((pred, actual), 0)
                 on_diag = pred == actual
                 if count == 0:
-                    bg = C["white"]; fg = C["mist"]
+                    fill = C["white"]; tfg = C["mist"]
                 elif on_diag:
-                    bg = C["frost"]; fg = C["forest"]
+                    fill = C["frost"]; tfg = C["forest"]
                 else:
-                    bg = "#FFD6D6"; fg = "#C0392B"
-                tk.Label(tbl, text=str(count) if count else "",
-                         width=cell_w, bg=bg, fg=fg,
-                         font=self._fonts["small"],
-                         relief="flat", anchor="center").grid(
-                             row=i+1, column=j+1, padx=1, pady=1)
+                    fill = "#FFD6D6"; tfg = "#C0392B"
+                x0 = ROWLAB + j * CELL
+                y0 = HEADER + i * CELL
+                cv.create_rectangle(
+                    x0, y0, x0 + CELL, y0 + CELL, fill=fill,
+                    outline=("black" if on_diag else "#E4E4E4"),
+                    width=(2 if on_diag else 1))
+                if count:
+                    cv.create_text(x0 + CELL // 2, y0 + CELL // 2,
+                                   text=str(count), font=self._fonts["small"],
+                                   fill=tfg)
 
     def _rebuild_species_list(self, species_counts):
         for w in self._species_frame.winfo_children():

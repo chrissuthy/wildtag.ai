@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>wildtag: validation store design</title>
+<style>
+  :root{--canopy:#1B4332;--forest:#2D6A4F;--frost:#F0F4F1;--border:#D4E4DA;
+    --text:#1a1a1a;--muted:#5a6e63;--accent:#40916C;--warn:#b5451b;--leaf:#52B788;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;line-height:1.7;
+    color:var(--text);background:#fff;}
+  .cover{background:var(--canopy);color:#fff;padding:48px 56px 36px;}
+  .cover h1{font-size:28px;font-weight:700;}
+  .cover .meta{margin-top:16px;font-size:12px;color:#74C69D;text-transform:uppercase;
+    letter-spacing:1px;}
+  main{max-width:820px;margin:0 auto;padding:40px 48px 72px;}
+  h1{font-size:24px;font-weight:700;color:var(--canopy);margin:36px 0 12px;
+    padding-bottom:9px;border-bottom:2px solid var(--border);}
+  h2{font-size:20px;font-weight:700;color:var(--canopy);margin:32px 0 10px;
+    padding-bottom:7px;border-bottom:2px solid var(--border);}
+  h3{font-size:16px;font-weight:600;color:var(--forest);margin:22px 0 8px;}
+  main>h1:first-child{margin-top:0;}
+  p{margin-bottom:14px;}
+  ul,ol{padding-left:24px;margin-bottom:14px;}
+  li{margin-bottom:6px;}
+  strong{color:var(--canopy);}
+  a{color:var(--forest);}
+  code{background:var(--frost);border:1px solid var(--border);border-radius:4px;
+    padding:1px 6px;font-family:'Courier New',monospace;font-size:13px;color:var(--canopy);}
+  pre{background:var(--frost);border:1px solid var(--border);border-radius:6px;
+    padding:12px 14px;overflow-x:auto;margin:14px 0;}
+  pre code{background:none;border:none;padding:0;}
+  blockquote{background:var(--frost);border-left:4px solid var(--accent);
+    padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0;color:var(--text);}
+  blockquote p{margin:0;}
+  table{width:100%;border-collapse:collapse;margin:14px 0 20px;font-size:13.5px;}
+  th{background:var(--canopy);color:#fff;text-align:left;padding:8px 12px;}
+  td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top;}
+  tr:nth-child(even) td{background:var(--frost);}
+  footer{background:var(--canopy);color:#74C69D;text-align:center;padding:18px;
+    font-size:12px;margin-top:20px;}
+  @media print{.cover{page-break-after:avoid;}h1,h2{page-break-after:avoid;}}
+</style>
+</head>
+<body>
+<div class="cover"><h1>wildtag: validation store design</h1><div class="meta">As built</div></div>
+<main>
+<h2>The root problem (named precisely)</h2>
+<p><code>results_with_ids.csv</code> mixes two kinds of data with opposite access patterns:</p>
+<ul>
+<li><strong>Detection record</strong> (immutable after a run): image_id, detection_id, paths,
+  datetime, bbox, <code>label</code>, <code>confidence</code>, locationName. ~480k rows, 197 MB.
+  Changes only when you re-run the pipeline.</li>
+<li><strong>Validation state</strong> (frequently updated, tiny): per detection_id,
+  <code>validated</code> + <code>correct_label</code>. Hundreds to a few thousand rows.</li>
+</ul>
+<p>Because they share one file, changing a few validation cells forces a rewrite of
+all 480k rows. That is the entire cause of: the slow saves, the unreliable
+background merge, the slow summary, and the truncation class of bug.</p>
+<h2>The fix (one sentence)</h2>
+<p>Keep <code>results_with_ids.csv</code> as the immutable <strong>detection record</strong>, move
+<strong>validation state</strong> into a tiny SQLite database that both local validation and
+collect write to, and <strong>derive</strong> the combined <code>results_with_ids.csv</code> on demand.
+Validation becomes instant; the big file is only written when you export.</p>
+<h2>New data model</h2>
+<ul>
+<li><code>results_with_ids.csv</code> - unchanged in content and location. Still produced by
+  <code>enrich_csv</code> from <code>results.csv</code>. <strong>Never rewritten by validation.</strong> All
+  existing readers of detection columns keep working as-is.</li>
+<li><code>validation.db</code> (SQLite, in the project folder) - the live source of truth for
+  validation:</li>
+</ul>
+<pre><code class="language-sql">CREATE TABLE validations (
+    detection_id  TEXT PRIMARY KEY,
+    label         TEXT,     -- predicted label (denormalised, for the matrix)
+    correct_label TEXT,     -- correction; '' if confirmed as predicted
+    validated     INTEGER DEFAULT 1,
+    source        TEXT,     -- 'local' or 'volunteer'
+    updated_at    TEXT
+);
+CREATE INDEX idx_val ON validations(validated);
+</code></pre>
+<p><code>sqlite3</code> is in the Python standard library - no new dependency.</p>
+<h2>Every current dependency, and how it's respected + sped up</h2>
+<table>
+<thead>
+<tr>
+<th>Current use of results_with_ids.csv</th>
+<th>Reads/Writes</th>
+<th>New design</th>
+<th>Speed</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enrich_csv</code> creates it from results.csv</td>
+<td>Write (create)</td>
+<td>Unchanged - it's the detection record</td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>_val_merge_to_master</code> (validate → master)</td>
+<td>Read+Write 197 MB</td>
+<td>Replaced by <code>INSERT OR REPLACE</code> of the changed rows into <code>validation.db</code></td>
+<td>ms</td>
+</tr>
+<tr>
+<td>Collect merges returns</td>
+<td>Read+Write 197 MB</td>
+<td>Same <code>INSERT OR REPLACE</code> into <code>validation.db</code> (source='volunteer')</td>
+<td>ms</td>
+</tr>
+<tr>
+<td>Summary counts (n_validated, n_corrected)</td>
+<td>Read 197 MB</td>
+<td><code>SELECT COUNT(*)</code> queries on the db</td>
+<td>ms</td>
+</tr>
+<tr>
+<td>Confusion matrix (cm_all, cm_errors)</td>
+<td>Read 197 MB</td>
+<td><code>GROUP BY label, correct_label</code> on the db</td>
+<td>ms</td>
+</tr>
+<tr>
+<td>Map + species totals (site_species, n_rows)</td>
+<td>Read 197 MB</td>
+<td>From the detection record, <strong>cached once per run</strong> (mtime key); corrections overlaid from the db (small set)</td>
+<td>one-time, then instant</td>
+</tr>
+<tr>
+<td>Sibling bbox drawing</td>
+<td>Read (detection cols)</td>
+<td>Unchanged - reads detection record</td>
+<td>same</td>
+</tr>
+<tr>
+<td>Volunteer package bake (subset into zip)</td>
+<td>Read (detection cols)</td>
+<td>Unchanged - reads detection record</td>
+<td>same</td>
+</tr>
+<tr>
+<td>Downstream/external tools reading the CSV</td>
+<td>Read</td>
+<td>Still get a real <code>results_with_ids.csv</code> via <strong>on-demand export</strong> (below)</td>
+<td>explicit</td>
+</tr>
+</tbody>
+</table>
+<p>Key point: <strong>nothing rewrites 197 MB on a validation click, ever.</strong> The only
+480k-row write is the explicit export.</p>
+<h2>Read paths (summary / matrix / map)</h2>
+<ul>
+<li><strong>Validation aggregates</strong> (validated count, corrections, confusion matrix):
+  pure SQL on <code>validation.db</code>. Instant, always current, independent of project
+  size. Because <code>label</code> is stored in the db, the matrix is a single GROUP BY
+  with no join to the big file.</li>
+<li><strong>Detection aggregates</strong> (total detections, species totals, per-site counts):
+  computed once from the detection record and cached on its mtime. The detection
+  record only changes on a new run, so this cache effectively never rebuilds
+  during validation.</li>
+<li><strong>Map corrected labels</strong>: start from the cached detection site-species counts,
+  then apply the db's corrections as a small overlay (decrement predicted,
+  increment corrected). Cheap because corrections are few.</li>
+</ul>
+<h2>Write paths (local validation / collect)</h2>
+<ul>
+<li>"Mark batch complete" → <code>INSERT OR REPLACE</code> the batch's detection_ids into
+  <code>validation.db</code>. Instant, synchronous, reliable. No background thread, no hack,
+  no truncation risk. The stall and the unreliability both disappear because the
+  write is tiny.</li>
+<li>Collect → same, tagged <code>source='volunteer'</code>. Local + volunteer validation
+  accumulate in one durable store, exactly the single accumulation point you
+  described.</li>
+</ul>
+<h2>results_with_ids.csv regeneration (the derived export)</h2>
+<ul>
+<li>An explicit <strong>"Export results (CSV)"</strong> action (and/or on project close):
+  stream the detection record, look up each detection_id in the db (loaded once
+  into a dict), fill <code>validated</code>/<code>correct_label</code>, write the combined CSV
+  atomically (temp + os.replace). This is the same join as today's merge, but it
+  runs only when you ask, not on every edit.</li>
+<li>If you want the CSV kept continuously current for an external watcher, the
+  export can also run in the background after a sync - but it is never on the
+  critical path of validating.</li>
+</ul>
+<h2>Backwards compatibility (your big project)</h2>
+<p>On first open of an existing project with the new build, a one-time automatic
+migration (non-destructive, <code>results_with_ids.csv</code> untouched):</p>
+<ol>
+<li>If <code>validation.db</code> doesn't exist, create it.</li>
+<li>Import existing validation state into it, keyed by detection_id, from BOTH:
+   - the <code>validated</code>/<code>correct_label</code> columns already in <code>results_with_ids.csv</code>
+     (your collected volunteer returns), and
+   - every <code>validation.csv</code> in the <code>validation\</code> folders (your local work).
+   <code>INSERT OR REPLACE</code> means duplicates collapse to one row; the folder copy
+   (freshest) wins ties.</li>
+<li>From then on, the db is the live store; the CSV is the detection record +
+   on-demand export.</li>
+</ol>
+<p>This captures everything you have already done - collected returns and the local
+sheep validations - into the fast store, with nothing lost and the big CSV left
+exactly as it is.</p>
+<h2>What changes in code (scope)</h2>
+<ul>
+<li>New small module/helpers: open db, <code>upsert_validations(rows)</code>,
+  <code>validation_stats()</code> (counts + matrix), <code>corrections_overlay()</code> (for the map),
+  <code>export_combined_csv()</code>, <code>migrate_if_needed()</code>.</li>
+<li><code>_val_complete_batch</code>: replace the master merge with a db upsert of the batch.</li>
+<li><code>_dist_collect</code>: replace the master merge with a db upsert of the returns.</li>
+<li><code>_get_aggregates</code>: split into cached detection aggregates + live db validation
+  aggregates.</li>
+<li><code>_val_merge_to_master</code> / <code>_val_sync_to_master</code>: become <code>export_combined_csv</code>
+  (explicit), not per-edit.</li>
+<li>Add "Export results (CSV)" button; keep migration automatic on open.</li>
+</ul>
+<h2>Safety / rollout</h2>
+<ul>
+<li>Migration is additive; the existing CSV is never modified by it.</li>
+<li>The export write is atomic (temp + os.replace) - the truncation bug cannot
+  recur even on the one big write that remains.</li>
+<li>Because the db is separate, even a crash mid-export leaves validation state
+  intact in the db.</li>
+</ul>
+<h2>Decisions (as built)</h2>
+<ol>
+<li><code>results_with_ids.csv</code> is regenerated <strong>on demand</strong> via an "Export results"
+   button at the top of the Summary pane, and <strong>automatically on a clean close</strong>
+   (with a "Saving results" message). Nothing watches the file live, so it is
+   not continuously regenerated.</li>
+<li>On project open, wildtag runs a one-time migration (first open) and then a
+   <strong>staleness check</strong>: if the store has validations newer than the last export,
+   it offers to export. This covers hard-close/crash cases.</li>
+<li>One <code>validation.db</code> (SQLite) per project folder, alongside
+   <code>results_with_ids.csv</code>.</li>
+<li>All writes to the results file are atomic (temp + os.replace), and the export
+   surfaces a clear message if the file is locked (e.g. open in Excel).</li>
+</ol>
+</main>
+<footer>wildtag.ai &middot; css6@st-andrews.ac.uk</footer>
+</body>
+</html>
