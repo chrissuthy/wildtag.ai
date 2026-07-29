@@ -1,6 +1,6 @@
 wildtag.ai - Camera Trap Image Processing
 ==========================================
-Version 1.2 - July 2026
+Version 1.3 - July 2026
 
 DOWNLOAD
   wildtag.ai installer:  https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_Setup.exe
@@ -89,6 +89,16 @@ MODELS
 
   Each model includes its own animal detector, so it locates animals in
   each image before classifying them.
+
+SHARING VALIDATION WITH VOLUNTEERS
+
+  You can send batches of images to volunteers to check. On the Distribute
+  tab, "Prepare zip packages" now creates image-only packages by default:
+  each zip contains just the images and a small spreadsheet, so they are
+  small and quick to send. Volunteers open them with the free wildtag
+  Validate app, a single file you send them once. They click "Open folder",
+  point it at the unzipped package, check the labels, and send back a small
+  results file. See wildtag_manual.pdf (Distribute) for the full workflow.
 
 DOCUMENTATION
   See wildtag_manual.pdf in the install folder for full instructions.

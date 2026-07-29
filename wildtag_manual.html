@@ -253,7 +253,9 @@
   <li><strong>Generate IDs</strong> - adds unique <code>image_id</code> and <code>detection_id</code> columns to the CSV.</li>
   <li><strong>Prepare validation folder</strong> - creates downscaled annotated images organised by species, ready for the Validate tab.</li>
   <li><strong>Validation image quality</strong> - sets how large the downscaled validation images are. Higher quality makes review easier but produces larger files and bigger volunteer packages; lower quality is faster to make and send. The default is a good balance for most surveys.</li>
+  <li><strong>Show confidence score on bounding boxes</strong> - when ticked, each box is labelled with the species and its confidence score (for example <code>fox&nbsp;&nbsp;0.94</code>); untick to label the box with the species name only. Remembered between runs.</li>
 </ul>
+<p><strong>Redraw validation images.</strong> If you change the image quality or the confidence-score setting after a run, click <strong>Redraw validation images</strong> to re-render the existing validation images with the new settings. It does not re-run detection and keeps all your validation progress (validated images and corrections), so it is a quick way to change how the boxes look without processing everything again.</p>
 
 <h3>Running</h3>
 <p>Click Run wildtag. The log panel shows live progress. With DeepFaune, a few dozen images take a couple of minutes on CPU. SpeciesNet does more work per image (a full detector, classifier, and geolocation pipeline over 2000+ species), so it is slower; setting a Geographic filter (your country) narrows the candidates and speeds it up considerably, and a GPU helps further for large projects.</p>
@@ -266,7 +268,7 @@
 <p>Validation is where you review AI predictions and correct any errors. wildtag presents images as a gallery, one species folder at a time.</p>
 
 <h3>Opening a validation folder</h3>
-<p>Click Browse and select your project folder or the <code>validation\</code> folder inside it - wildtag finds it automatically. The species dropdown shows only folders with images still needing review.</p>
+<p>In the full app your project's validation folder loads automatically. You can also click <strong>Open folder</strong> and select any project folder or the <code>validation\</code> folder inside it - wildtag finds it automatically. (In the standalone validator, volunteers always use <strong>Open folder</strong> to point at the package they unzipped.) The species dropdown shows only folders with images still needing review.</p>
 
 <h3>Reviewing images</h3>
 <p>Images appear in a grid with the AI confidence score below each one and a bounding box drawn around the detected animal. Click any image to open the correction dialog.</p>
@@ -285,7 +287,7 @@
 <div class="callout warn">Images containing humans are automatically pixelated in the validation folder. Original images are never modified.</div>
 
 <h3>Repairing a validation folder</h3>
-<p>If any tiles show "Image not found", the folder's image list has got out of step with the images actually present (this can happen with folders made by older versions of wildtag). wildtag repairs this automatically whenever a validation folder is opened, and a <strong>Repair folders</strong> button on the Validate tab does the same on demand. The repair is safe: it never deletes images or loses validation work, and it keeps a backup of the original list.</p>
+<p>If any tiles show "Image not found", the folder's image list has got out of step with the images actually present (this can happen with folders made by older versions of wildtag). wildtag repairs this automatically whenever a validation folder is opened. The repair is safe: it never deletes images or loses validation work, and it keeps a backup of the original list.</p>
 
 <h3>How validation updates the master CSV</h3>
 <p>As you validate, wildtag writes corrections to <code>validation.csv</code> files inside each species folder. When you distribute or export, these corrections are merged into the master <code>results_with_ids.csv</code>, populating the <code>correct_label</code> and <code>human_verified</code> columns. Your master CSV always reflects your latest validation work.</p>
@@ -297,15 +299,20 @@
 <p>The Distribute tab handles packaging validation folders to send to volunteer validators, collecting their corrections when they are returned, and exporting your favourite (hearted) images by species.</p>
 
 <h3>Part A - Prepare packages for validators</h3>
-<p>Select your validation folder and click <strong>Prepare zip packages</strong>. wildtag creates one zip file per species folder containing the annotated images, the validation spreadsheet, the wildtag app, and instructions. Each zip goes into a <code>distribute\</code> folder next to your validation folder.</p>
+<p>Select your validation folder and click <strong>Prepare zip packages</strong>. wildtag creates one zip file per species folder (or per batch) into a <code>distribute\</code> folder next to your validation folder.</p>
+
+<p>With <strong>Image-only packages</strong> ticked (the default and recommended), each zip contains only the annotated images and a small spreadsheet - nothing else. Volunteers open these with the standalone <strong>wildtag Validate</strong> app, which you send them just once (see below). Because the app and its Python runtime are no longer copied into every zip, the packages are a fraction of the previous size and far quicker to send. Untick the option only for a volunteer who cannot install the app: wildtag then falls back to the old self-contained zip that bundles a private copy of the app and runtime.</p>
 
 <p>Send the relevant zip to each volunteer. You might assign one species to each person, or send multiple zips to the same person for different species.</p>
 
 <div class="callout">wildtag never sends the same image twice. Each time you prepare packages, only images that still need validation and have not already been sent are included, so you can run Prepare again after adding new data without re-sending old images. Use the <strong>Max images per zip</strong> setting to control batch size: smaller zips are easier to email, larger ones suit a single validator working from a drive.</div>
 
+<h3>Setting a volunteer up (once)</h3>
+<p>Send each volunteer the <strong>wildtag Validate</strong> app a single time: one file, <code>wildtag_validate.exe</code>, built with <code>build_validate_exe.bat</code> (see the build guide). They save it somewhere permanent and reuse it for every package you send afterwards. No installation and no Python are required.</p>
+
 <h3>What the volunteer does</h3>
-<div class="step"><div class="step-num">1</div><div class="step-body">Unzip the file and double-click <code>Run wildtag.bat</code></div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">Click Browse in the Validate tab and select the unzipped folder</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">Unzip the image package to a permanent folder</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Open the <strong>wildtag Validate</strong> app, click <strong>Open folder</strong> in the Validate tab, and select the unzipped folder</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">Review images, correct labels, click Mark batch complete</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body">Return the results: either zip the whole folder and send it, or send back just the <code>..._validation.csv</code> from the species subfolder (the filename does not matter)</div></div>
 

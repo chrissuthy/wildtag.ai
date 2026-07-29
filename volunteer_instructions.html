@@ -68,36 +68,31 @@
 
 <div class="cover">
   <h1>wildtag.ai - Volunteer Instructions</h1>
-  <p>Thank you for helping validate camera trap images. This walks you through everything, step by step. It takes a few minutes to get started, and you need no technical experience or software installed beforehand.</p>
+  <p>Thank you for helping validate camera trap images. This walks you through everything, step by step. It takes a few minutes to get started and needs no technical experience. You install the small wildtag Validate app once, then reuse it for every set of images you are sent.</p>
   <div class="meta">Species validation &nbsp;&middot;&nbsp; css6@st-andrews.ac.uk</div>
 </div>
 
 <main>
 
-<h2>What's in your file</h2>
-<p>When you unzip the file you were sent, you will see:</p>
-<ul>
-  <li><code>Run wildtag.bat</code> - double-click this one to start (see below).</li>
-  <li><code>wildtag.py</code> - the app itself. You do not need to open this directly.</li>
-  <li><code>validate_env</code> - a private, self-contained copy of everything wildtag needs. You do not need to install Python or anything else.</li>
-  <li>A folder named after the species you are validating, containing the images.</li>
-</ul>
-<div class="callout">You do not need internet access, administrator rights, or any software installed. Everything needed is already in the folder.</div>
+<h2>First time only - get the app</h2>
+<p>The project lead will send you the <strong>wildtag Validate</strong> app once: a single file called <code>wildtag_validate.exe</code>. Save it somewhere permanent, such as your Desktop. You only need it once - every image package you are sent afterwards uses the same app. There is nothing to install, and no need for Python or internet access.</p>
+<div class="callout warn">Windows may show a blue "Windows protected your PC" warning the first time you open it, because the app is not digitally signed. Click "More info", then "Run anyway". This is expected and safe - it happens because the app is new, not because anything is wrong.</div>
 
-<h2>Step 1 - Unzip the file</h2>
+<h2>What's in an image package</h2>
+<p>When you unzip a package you were sent, you will see a <code>validation</code> folder containing a sub-folder named after the species you are validating, with the images inside it and a small spreadsheet. That is all - the app is separate (see above).</p>
+
+<h2>Step 1 - Unzip the package</h2>
 <div class="step"><div class="step-num">1</div><div class="step-body">Right-click the zip file you were sent.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">Choose "Extract All..." and pick a location, for example your Desktop.</div></div>
-<div class="step"><div class="step-num">3</div><div class="step-body">Open the resulting folder.</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Choose "Extract All..." and pick a permanent location, for example your Desktop.</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">Note where you extracted it - you will point the app at this folder next.</div></div>
 
-<h2>Step 2 - Start wildtag</h2>
-<div class="step"><div class="step-num">1</div><div class="step-body">Double-click <code>Run wildtag.bat</code>.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">A black window will briefly appear. This is normal - leave it be.</div></div>
-<div class="step"><div class="step-num">3</div><div class="step-body">A few seconds later, the wildtag window will open.</div></div>
-<div class="callout warn">Windows may show a blue "Windows protected your PC" warning the first time, because this app is not digitally signed. Click "More info", then "Run anyway". This is expected and safe - it happens because the app is new, not because anything is wrong.</div>
+<h2>Step 2 - Open the app</h2>
+<div class="step"><div class="step-num">1</div><div class="step-body">Double-click <code>wildtag_validate.exe</code> (the app the project lead sent you).</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">The wildtag window opens straight to the validation view.</div></div>
 
 <h2>Step 3 - Validate the images</h2>
-<div class="step"><div class="step-num">1</div><div class="step-body">Click the <strong>Validate</strong> tab on the left.</div></div>
-<div class="step"><div class="step-num">2</div><div class="step-body">Click <strong>Browse</strong> next to "Validation folder" and select the species folder inside your unzipped folder.</div></div>
+<div class="step"><div class="step-num">1</div><div class="step-body">Click the <strong>Validate</strong> tab on the left (it is usually already selected).</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">Click <strong>Open folder</strong> and select the folder you unzipped. wildtag finds the images inside automatically.</div></div>
 <div class="step"><div class="step-num">3</div><div class="step-body">A gallery of images appears, each already labelled with the species wildtag detected, with a confidence score below it.</div></div>
 <div class="step"><div class="step-num">4</div><div class="step-body">For each image: if the label looks correct, do nothing and move on. If it looks wrong, click the image and choose the correct species from the list, then apply the correction.</div></div>
 <div class="step"><div class="step-num">5</div><div class="step-body">If the correct species is not in the list, use the <strong>"Not listed? Add a label"</strong> box to add it. Your new label is then available for the rest of your images.</div></div>
@@ -109,8 +104,8 @@
 
 <h2>Step 4 - Send your results back</h2>
 <p>Either of these works, whichever is easier for you:</p>
-<div class="step"><div class="step-num">A</div><div class="step-body"><strong>Send the whole folder</strong> Right-click the species-named folder, choose "Send to" then "Compressed (zipped) folder", and send the resulting zip to the project lead.</div></div>
-<div class="step"><div class="step-num">B</div><div class="step-body"><strong>Send just your results file</strong> Open the species folder and return the single file whose name ends in <code>_validation.csv</code> (for example <code>fox_001_validation.csv</code>). This is much smaller to send. You may rename it if you like - the name does not matter.</div></div>
+<div class="step"><div class="step-num">A</div><div class="step-body"><strong>Send the whole folder</strong> Right-click the folder you unzipped, choose "Send to" then "Compressed (zipped) folder", and send the resulting zip to the project lead.</div></div>
+<div class="step"><div class="step-num">B</div><div class="step-body"><strong>Send just your results file</strong> Open <code>validation\</code> and then the species sub-folder inside the folder you unzipped, and return the single file whose name ends in <code>_validation.csv</code> (for example <code>fox_001_validation.csv</code>). This is much smaller to send. You may rename it if you like - the name does not matter.</div></div>
 <div class="callout warn">Please do not open the <code>..._validation.csv</code> file in Excel or any other program before returning it, as that can quietly corrupt it.</div>
 
 <h2>A few important notes</h2>

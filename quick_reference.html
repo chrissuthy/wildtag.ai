@@ -145,13 +145,13 @@
       <li>Click an image to flag / correct it</li>
       <li><span class="kbd">Ctrl</span>+click = select several, correct together</li>
       <li><strong>Mark batch complete</strong> when done</li>
-      <li><strong>Repair folders</strong> fixes "image not found"</li>
+      <li><strong>Open folder</strong> to load a package (or it auto-loads)</li>
     </ul>
   </div>
   <div class="card">
     <div class="tab-label">Distribute</div>
     <ul>
-      <li><strong>Prepare zip packages</strong> (never sends an image twice)</li>
+      <li><strong>Prepare zip packages</strong> - image-only; never sends an image twice</li>
       <li><strong>Merge</strong> returned zips from <code>collect\</code></li>
       <li><strong>Export Camtrap DP</strong> / favourites</li>
     </ul>
@@ -183,7 +183,9 @@
   <tr><td>Processing device</td><td>CPU always; NVIDIA GPU if detected (much faster)</td><td>Auto</td></tr>
   <tr><td>Checkpoint frequency</td><td>How often progress is saved for resume</td><td>Default</td></tr>
   <tr><td>Validation image quality</td><td>Size of downscaled review images</td><td>Default</td></tr>
+  <tr><td>Show confidence score on boxes</td><td>Label each box with species + score, or species only</td><td>On</td></tr>
 </table>
+<p style="margin-top:8px"><strong>Redraw validation images</strong> re-renders existing validation images with the current quality and confidence settings, without re-running detection or losing validation progress.</p>
 
 <h2>Handy to know</h2>
 <div class="grid">
@@ -204,7 +206,7 @@
 
 <h2>Troubleshooting</h2>
 <div class="callout">Run tab dropdown empty? No model is downloaded yet - open <strong>Models</strong> and download one while online.</div>
-<div class="callout">Tiles show "Image not found"? The folder self-repairs on open; or click <strong>Repair folders</strong>. Nothing is lost.</div>
+<div class="callout">Tiles show "Image not found"? The folder self-repairs on open. Nothing is lost.</div>
 <div class="callout">SpeciesNet slow? Set a Geographic filter (your country) in the Run options - it narrows the global model to your region and speeds it up a lot. A GPU helps for very large projects.</div>
 <div class="callout">Run interrupted? Reopen the project - wildtag offers to finish where it left off.</div>
 

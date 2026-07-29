@@ -64,6 +64,34 @@ If you ever want a fully-bundled, offline-from-first-launch installer, ship
 `models\` (run `build_env.py --bundle-models` first to populate it), but
 expect a roughly 1.6 GB larger installer.
 
+## Building the volunteer validator (validate-only exe)
+
+Volunteers no longer need the whole app bundled into every zip. Instead you
+build a single small **`wildtag_validate.exe`** once and send it to each
+volunteer; after that they only receive image-only packages from the
+Distribute tab.
+
+1. Make sure `wildtag_validate.spec`, `build_validate_exe.bat`, `wildtag.py`
+   and `wildtag.ico` are in the `wildtag.ai\` folder.
+2. **Pause Dropbox** during the build.
+3. Double-click `build_validate_exe.bat` (or run it from a terminal). It uses
+   `validate_env` (or `wildtag_env`) to install PyInstaller and compile the
+   spec.
+4. When it finishes, the validator is `dist\wildtag_validate.exe`. That one
+   file is what you send volunteers.
+
+The build stays small because the frozen exe has no `wildtag_env` beside it,
+so wildtag starts in validate-only mode and never imports the detection stack
+(torch, onnxruntime, opencv, wt_models); the spec excludes all of that.
+
+Rebuild `wildtag_validate.exe` whenever you change `wildtag.py`, so volunteers
+run a validator that matches your current version.
+
+> If PyInstaller proves troublesome on your machine (antivirus, onefile
+> extraction), the fallback is a validate-only Inno installer built the same
+> way as the main installer but shipping `validate_env` + `wildtag.py` with no
+> models and no `wildtag_env`.
+
 ## Hosting the installer (Hugging Face)
 
 For public distribution, zip the two Output files into one download and
