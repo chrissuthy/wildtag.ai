@@ -1,6 +1,6 @@
 wildtag.ai - Camera Trap Image Processing
 ==========================================
-Version 1.3 - July 2026
+Version 1.4 - August 2026
 
 DOWNLOAD
   wildtag.ai installer:  https://huggingface.co/chrissuthy/wildtag-installer/resolve/main/wildtag_Setup.exe

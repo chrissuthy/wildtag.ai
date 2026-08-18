@@ -139,7 +139,7 @@
     <div style="font-family:Segoe UI,system-ui,sans-serif;font-size:40px;font-weight:300;color:#fff;letter-spacing:-1px;">wild<span style="font-weight:700;color:#74C69D;">tag</span><span style="color:#B7E4C7;">.ai</span></div>
   </div>
   <p>Automated species identification for camera trap images - powered by AI, designed for ecologists.</p>
-  <div class="meta">User Manual - Version 1.1 - July 2026</div>
+  <div class="meta">User Manual - Version 1.4 - August 2026</div>
 </div>
 
 <div class="layout">
@@ -290,7 +290,7 @@
 <p>If any tiles show "Image not found", the folder's image list has got out of step with the images actually present (this can happen with folders made by older versions of wildtag). wildtag repairs this automatically whenever a validation folder is opened. The repair is safe: it never deletes images or loses validation work, and it keeps a backup of the original list.</p>
 
 <h3>How validation updates the master CSV</h3>
-<p>As you validate, wildtag writes corrections to <code>validation.csv</code> files inside each species folder. When you distribute or export, these corrections are merged into the master <code>results_with_ids.csv</code>, populating the <code>correct_label</code> and <code>human_verified</code> columns. Your master CSV always reflects your latest validation work.</p>
+<p>As you validate, wildtag writes corrections to <code>validation.csv</code> files inside each species folder. When you distribute or export, these corrections are merged into the master <code>results_with_ids.csv</code>, populating the <code>correct_label</code>, <code>human_label</code>, and <code>best_label</code> columns. Your master CSV always reflects your latest validation work.</p>
 
 <h2 id="distribute">6. Distributing and Collecting</h2>
 
@@ -358,7 +358,7 @@
 <p>The locations of the key outputs for the project (the results CSV, the validation folder, and any exports), so you can find them without hunting through folders.</p>
 
 <h3>Viewing detections on a map</h3>
-<p>If your images carry GPS metadata, or you have supplied deployment coordinates, click <strong>Launch map</strong> to open an interactive map of your detection locations in your web browser. A dropdown on the map lets you colour sites by species.</p>
+<p>If your images carry GPS metadata, or you have supplied deployment coordinates, click <strong>Launch map</strong> to open an interactive map of your detection locations in your web browser. A <strong>Species</strong> dropdown lets you colour sites by species, and a <strong>Labels</strong> dropdown chooses which identification the map uses: <em>Best available</em> (human validation where present, otherwise the AI prediction), <em>AI prediction</em> (what the model classified), or <em>Human validated</em> (only what people have confirmed or corrected, with detections nobody has validated yet shown as "not validated"). The map reads the exported master CSV, so run <strong>Export results</strong> after validating to see the latest picture.</p>
 
 <h2 id="csv">8. Understanding the CSV Output</h2>
 
@@ -372,8 +372,10 @@
   <tr><td><code>relative_path</code></td><td>Path to the image relative to the survey folder root.</td></tr>
   <tr><td><code>label</code></td><td>Final species label: <code>empty</code>, <code>human</code>, <code>vehicle</code>, <code>low_confidence</code>, or a species name.</td></tr>
   <tr><td><code>confidence</code></td><td>Classifier confidence score (0-1). <code>NA</code> for empty images.</td></tr>
+  <tr><td><code>ai_label</code></td><td>The model's predicted species (the same value as <code>label</code>), kept as a permanent record of what the AI classified.</td></tr>
+  <tr><td><code>human_label</code></td><td>The species a person assigned during validation: the correction if the label was changed, the confirmed AI label if the detection was validated and left unchanged, and blank if it has not been validated.</td></tr>
+  <tr><td><code>best_label</code></td><td>The best available identification: <code>human_label</code> where a person has validated the detection, otherwise <code>ai_label</code>. This is usually the column to analyse.</td></tr>
   <tr><td><code>correct_label</code></td><td>Correction entered during validation. Empty if the AI label was accepted.</td></tr>
-  <tr><td><code>human_verified</code></td><td><code>TRUE</code> once a detection has been reviewed in the Validate tab.</td></tr>
 </table>
 
 <h3>Detection detail columns</h3>
@@ -553,6 +555,6 @@
 </main>
 </div>
 
-<footer>wildtag.ai - Version 1.1 - July 2026</footer>
+<footer>wildtag.ai - Version 1.4 - August 2026</footer>
 </body>
 </html>
