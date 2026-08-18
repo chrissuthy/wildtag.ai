@@ -13,9 +13,27 @@ import sys
 import json
 import hashlib
 import subprocess
+import ssl
 import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
+
+
+def _ssl_context():
+    """Return an SSL context that can verify HTTPS certificates.
+
+    On Windows, a bundled Python often cannot find the operating system's
+    trusted root certificates, which makes every HTTPS download fail with
+    CERTIFICATE_VERIFY_FAILED even though the connection is perfectly valid.
+    Using certifi's maintained root bundle fixes this the correct way, by
+    supplying trusted roots, without ever disabling verification. If certifi
+    is unavailable we fall back to the default context.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def models_dir() -> Path:
@@ -172,7 +190,19 @@ def _download_file(url: str, dest: Path,
                    progress: Callable[[int, int], None],
                    expected_size_mb: int) -> None:
     """Download url -> dest. Prefer huggingface_hub for HF URLs (resumable,
-    retrying, integrity-checked); fall back to urllib otherwise."""
+    retrying, integrity-checked); fall back to urllib otherwise. Both paths use
+    certifi's trusted root certificates so HTTPS verification works on machines
+    whose bundled Python cannot find the OS certificate store."""
+    # Make requests/huggingface_hub (which use certifi under the hood, but only
+    # if pointed at it) verify against the certifi bundle. Harmless if unset.
+    try:
+        import certifi
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+        os.environ.setdefault("CURL_CA_BUNDLE", certifi.where())
+    except Exception:
+        pass
+
     hf = _parse_hf_url(url)
     if hf:
         repo_id, revision, filename = hf
@@ -192,12 +222,16 @@ def _download_file(url: str, dest: Path,
             log(f"  Hugging Face download unavailable ({e}); "
                 f"falling back to direct download.")
 
-    # Fallback: plain urllib (no resume, but works for any host)
+    # Fallback: plain urllib with an explicit, certifi-backed SSL context.
     def _reporthook(count, block_size, total_size):
         if total_size > 0:
             progress(min(count * block_size, total_size), total_size)
         else:
             progress(count * block_size, expected_size_mb * 1024 * 1024)
+    ctx = _ssl_context()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=ctx))
+    urllib.request.install_opener(opener)
     urllib.request.urlretrieve(url, dest, reporthook=_reporthook)
 
 
@@ -343,6 +377,9 @@ def ensure_model(
         classes_file = model_dir(model_id) / "classes.txt"
         if not classes_file.exists():
             log("  Downloading classes list...")
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=_ssl_context()))
+            urllib.request.install_opener(opener)
             urllib.request.urlretrieve(meta["classes_url"], classes_file)
 
     mark_ready(model_id, {
