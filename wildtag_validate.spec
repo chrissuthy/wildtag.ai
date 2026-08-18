@@ -17,7 +17,11 @@ block_cipher = None
 a = Analysis(
     ['wildtag.py'],
     pathex=[],
-    binaries=[],
+    binaries=[
+        # Conda keeps sqlite3.dll in Library\bin, so PyInstaller bundles
+        # _sqlite3.pyd but misses the DLL it depends on. Ship it explicitly.
+        ('wildtag_env/Library/bin/sqlite3.dll', '.'),
+    ],
     datas=[('wildtag.ico', '.')],          # so the app can set its window icon
     hiddenimports=['PIL._tkinter_finder'],  # helps ImageTk find tkinter
     hookspath=[],

@@ -20,7 +20,7 @@
 ; ============================================================
 
 #define MyAppName "wildtag.ai"
-#define MyAppVersion "1.3"
+#define MyAppVersion "1.4"
 #define MyAppPublisher "wildtag.ai"
 #define MyAppExeName "wildtag_launch.vbs"
 

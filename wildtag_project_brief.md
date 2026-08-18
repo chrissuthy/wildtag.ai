@@ -94,7 +94,14 @@ No MegaDetector. Each classifier brings its own detector.
 - log() writes to stdout (not stderr) so it streams through engine
 
 ### CSV columns (results_with_ids.csv)
-`image_id`, `detection_id`, `absolute_path`, `relative_path`, `locationName`, `data_type`, `label`, `confidence`, `detector_label`, `detector_confidence`, `cv_label`, `cv_confidence`, `cv_model`, `human_verified`, `bbox_left`, `bbox_top`, `bbox_right`, `bbox_bottom`, `bbox_normalised`, `file_width`, `file_height`, EXIF fields, `correct_label`, `validated`
+`image_id`, `detection_id`, `absolute_path`, `relative_path`, `locationName`, `data_type`, `label`, `confidence`, `ai_label`, `human_label`, `best_label`, `detector_label`, `detector_confidence`, `cv_label`, `cv_confidence`, `cv_model`, `bbox_left`, `bbox_top`, `bbox_right`, `bbox_bottom`, `bbox_normalised`, `file_width`, `file_height`, EXIF fields, `correct_label`, `validated`
+
+**Definitive label columns** (written from the first processing pass; populated fully on Export):
+- `ai_label` — the model's predicted species (mirror of `label`)
+- `human_label` — the human's species where validated: the correction if the label was changed, the confirmed AI label if validated and unchanged, blank if not validated
+- `best_label` — `human_label` if present, otherwise `ai_label`
+
+The obsolete `human_verified` column is no longer created, and is dropped from older files on their next Export.
 
 ---
 

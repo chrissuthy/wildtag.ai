@@ -2382,7 +2382,7 @@ class WildTagApp(tk.Tk):
                   anchor="w").pack(fill="x", pady=(0,4))
 
         tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", padx=16, pady=(0,8))
-        tk.Label(parent, text="wildtag.ai  v0.1",
+        tk.Label(parent, text="wildtag.ai  v1.4",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["mist"], padx=16).pack(anchor="w")
 
