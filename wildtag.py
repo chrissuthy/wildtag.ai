@@ -3,10 +3,12 @@ wildtag.py
 ==========
 wildtag.ai - camera trap image pipeline
 
+
   STEP 1  Enrich CSV
           Adds image_id  (hash of absolute_path + relative_path + DateTimeOriginal)
           Adds detection_id (hash of image_id + bbox coordinates)
           Saves as <original>_with_ids.csv next to the original.
+
 
   STEP 2  Sort, resize, annotate
           For each detection row:
@@ -15,33 +17,48 @@ wildtag.ai - camera trap image pipeline
             • Copies annotated image to  validation/<species>/<detection_id>.jpg
             • Writes validation.csv into each species folder
 
+
 Run with GUI (recommended):
     python wildtag.py
+
 
 Run headless:
     python wildtag.py --no-gui --csv "S:/path/to/results.csv"
 """
+
 
 import os, sys, csv, re, hashlib, argparse, threading, json, sqlite3
 import subprocess as _subprocess
 from pathlib import Path
 from collections import defaultdict
 
+
 # On Windows a windowless (pythonw) app still pops a console window for each
 # subprocess it launches (nvidia-smi, pip, relaunch, model runner) unless we
 # suppress it. CREATE_NO_WINDOW does that; it's 0 (no-op) on other platforms.
 _NO_WINDOW = getattr(_subprocess, "CREATE_NO_WINDOW", 0)
+
 
 try:
     from PIL import Image, ImageDraw, ImageFont
 except ImportError:
     sys.exit("Pillow is not installed.\n\nRun:  pip install Pillow  then try again.")
 
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 
+
 # ── persist settings next to the script ───────────────────────────────────────
-SETTINGS_FILE = Path(__file__).parent / "wildtag_settings.json"
+# When frozen into a standalone exe (the validate-only build), __file__ points
+# into a temporary extraction dir that is wiped each launch, so settings would
+# never persist. Anchor to the exe's own folder in that case.
+if getattr(sys, "frozen", False):
+    APP_DIR = Path(sys.executable).parent
+else:
+    APP_DIR = Path(__file__).parent
+SETTINGS_FILE = APP_DIR / "wildtag_settings.json"
+
 
 def load_settings():
     if SETTINGS_FILE.exists():
@@ -56,14 +73,17 @@ def load_settings():
             pass
     return {}
 
+
 def save_settings(d: dict):
     try:
         SETTINGS_FILE.write_text(json.dumps(d, indent=2))
     except Exception:
         pass
 
+
 # ── brand colours ──────────────────────────────────────────────────────────────
 # ── Colour palettes ───────────────────────────────────────────────────────────
+
 
 THEMES = {
     "light": {
@@ -112,22 +132,28 @@ THEMES = {
     },
 }
 
+
 C = dict(THEMES["light"])  # mutable — swapped on theme change
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 def _sha256_short(text, length=12):
     return hashlib.sha256(text.encode()).hexdigest()[:length]
+
 
 def make_image_id(absolute_path, relative_path, datetime_original):
     raw = f"{absolute_path.strip()}|{relative_path.strip()}|{datetime_original.strip()}"
     return f"img_{_sha256_short(raw)}"
 
+
 def make_detection_id(image_id, bbox_left, bbox_top, bbox_right, bbox_bottom):
     raw = f"{image_id}|{bbox_left}|{bbox_top}|{bbox_right}|{bbox_bottom}"
     return f"det_{_sha256_short(raw)}"
+
 
 def sanitise_label(label):
     label = label.strip().lower()
@@ -136,9 +162,12 @@ def sanitise_label(label):
     return label or "unknown"
 
 
+
+
 # ── Full class lists for each model ──────────────────────────────────────────
 # Used to create all species folders and populate the correction dialog.
 # Order: unidentifiable first, then species A-Z, then groups A-Z.
+
 
 # DeepFaune v1.4 — 38 classes in training order
 _DEEPFAUNE_SPECIES = [
@@ -161,6 +190,7 @@ DEEPFAUNE_ALL_LABELS = (
     + sorted(_DEEPFAUNE_SPECIAL)
 )
 
+
 # DeepFaune New England: 24 taxa (normalised to match the DFNE backend's
 # CLASSES). Order here is for the validation dropdown only; the backend maps
 # model output indices to these same label strings.
@@ -172,6 +202,7 @@ DFNE_ALL_LABELS = sorted([
     "wild_boar", "wild_turkey", "no_species",
 ])
 
+
 # Model ID → full label list mapping
 # None means "use observed labels only, ordered dynamically"
 MODEL_CLASS_LISTS = {
@@ -179,6 +210,7 @@ MODEL_CLASS_LISTS = {
     "deepfaune-new-england": DFNE_ALL_LABELS,
     "speciesnet-global": None,
 }
+
 
 # SpeciesNet taxonomy group labels — used to sort into species vs group
 SPECIESNET_GROUP_SUFFIXES = (
@@ -190,10 +222,13 @@ SPECIESNET_SPECIAL = {
     "bird", "vertebrate", "undefined", "unknown",
 }
 
+
 def get_all_labels_for_model(classifier_id: str) -> list:
     """Return the full ordered class list for a given model ID.
     Returns None for models where we use observed labels only."""
     return MODEL_CLASS_LISTS.get(classifier_id, [])
+
+
 
 
 def fmt_model_size(mb):
@@ -203,6 +238,8 @@ def fmt_model_size(mb):
     except (TypeError, ValueError):
         return ""
     return f"{mb/1024:.1f} GB" if mb >= 1024 else f"{int(mb)} MB"
+
+
 
 
 def model_install_state(meta, is_ready=None, cache_bundle_present=None,
@@ -228,14 +265,17 @@ def model_install_state(meta, is_ready=None, cache_bundle_present=None,
         pass
     return "available"
 
+
 def build_image_path(absolute_path, relative_path):
     base = Path(absolute_path.strip())
     rel  = Path(relative_path.strip().replace("\\", os.sep).replace("/", os.sep))
     return base / rel
 
+
 def _to_int(val):
     try:    return int(float(val))
     except: return None
+
 
 def load_csv(csv_path):
     with open(csv_path, newline="", encoding="utf-8-sig") as f:
@@ -247,27 +287,34 @@ def load_csv(csv_path):
     return rows, list(reader.fieldnames)
 
 
+
+
 def load_json_as_rows(json_path, log):
     """
     Parse an AddaxAI image_recognition_file.json directly into the same
     row structure that load_csv() produces, then write a results.csv
     alongside the JSON so the rest of the pipeline is unchanged.
 
+
     Returns (rows, fieldnames, csv_path) where csv_path is the newly
     written CSV file.
     """
     log("── Parsing AddaxAI JSON ─────────────────────────────────────────────", "head")
 
+
     json_path = Path(json_path)
     with open(json_path, encoding="utf-8") as f:
         data = json.load(f)
+
 
     # Label maps
     det_cats = data.get("detection_categories", {})
     cls_cats = data.get("classification_categories", {})
 
+
     # The absolute folder containing the images is the folder that holds the JSON
     absolute_path = str(json_path.parent)
+
 
     CSV_FIELDS = [
         "absolute_path","relative_path","data_type","label","confidence",
@@ -283,6 +330,7 @@ def load_json_as_rows(json_path, log):
         "ExposureMode","WhiteBalance","SceneCaptureType","ExposureTime",
         "Software","Sharpness","Saturation","ReferenceBlackWhite",
     ]
+
 
     # EXIF tag IDs we want, mapped to CSV column names
     EXIF_TAGS = {
@@ -313,6 +361,7 @@ def load_json_as_rows(json_path, log):
         41993: "Saturation",
         532:   "ReferenceBlackWhite",
     }
+
 
     def extract_exif(img_path: Path) -> dict:
         """Read EXIF tags from an image file. Returns dict of column: value."""
@@ -355,8 +404,10 @@ def load_json_as_rows(json_path, log):
             pass
         return result
 
+
     # Cache EXIF per image path so we only read each file once
     exif_cache: dict = {}
+
 
     rows = []
     for image in data.get("images", []):
@@ -365,16 +416,19 @@ def load_json_as_rows(json_path, log):
         if not detections:
             continue
 
+
         # Build full path and read EXIF once per image
         img_full_path = Path(absolute_path) / Path(relative_path.replace("\\", os.sep))
         if relative_path not in exif_cache:
             exif_cache[relative_path] = extract_exif(img_full_path)
         exif = exif_cache[relative_path]
 
+
         for det in detections:
             det_cat_id  = det.get("category", "")
             det_label   = det_cats.get(det_cat_id, "unknown")
             det_conf    = det.get("conf", 0.0)
+
 
             classifications = det.get("classifications", [])
             if classifications:
@@ -384,6 +438,7 @@ def load_json_as_rows(json_path, log):
             else:
                 label = det_label
                 conf  = det_conf
+
 
             # bbox in AddaxAI JSON is [x, y, w, h] normalised 0-1
             bbox = det.get("bbox", [0, 0, 0, 0])
@@ -398,15 +453,13 @@ def load_json_as_rows(json_path, log):
                 bbox_left = bbox_top = bbox_right = bbox_bottom = 0
                 normalised = False
 
+
             rows.append({
                 "absolute_path":   absolute_path,
                 "relative_path":   relative_path,
                 "data_type":       "img",
                 "label":           label,
                 "confidence":      str(round(conf, 5)),
-                # Definitive label columns, present from the first write. At
-                # processing time nothing is validated yet, so the human label
-                # is blank and the best available label is the AI prediction.
                 "ai_label":        label,
                 "human_label":     "",
                 "best_label":      label,
@@ -449,7 +502,9 @@ def load_json_as_rows(json_path, log):
                 "ReferenceBlackWhite": exif["ReferenceBlackWhite"],
             })
 
+
     log(f"  {len(rows):,} detections parsed from JSON.", "ok")
+
 
     # Write a results.csv alongside the JSON so the rest of the pipeline
     # can treat it identically to an AddaxAI-exported CSV
@@ -459,8 +514,11 @@ def load_json_as_rows(json_path, log):
         writer.writeheader()
         writer.writerows(rows)
 
+
     log(f"  Written: {csv_path.name}", "ok")
     return rows, CSV_FIELDS, csv_path
+
+
 
 
 def load_input(path, log):
@@ -475,20 +533,25 @@ def load_input(path, log):
         rows, fields = load_csv(path)
         return rows, fields, path
 
+
 # ── Step 1 ────────────────────────────────────────────────────────────────────
+
 
 def enrich_csv(input_path, log):
     log("── Step 1: Generating image and detection IDs ───────────────────────", "head")
     rows, fieldnames, csv_path = load_input(input_path, log)
+
 
     required = {"absolute_path","relative_path","bbox_left","bbox_top","bbox_right","bbox_bottom"}
     missing  = required - set(fieldnames)
     if missing:
         raise ValueError(f"Input is missing columns: {missing}\nFound: {fieldnames}")
 
+
     new_cols  = [c for c in ("image_id","detection_id") if c not in fieldnames]
     out_fields = new_cols + fieldnames
     enriched_path = csv_path.parent / (csv_path.stem + "_with_ids.csv")
+
 
     with open(enriched_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=out_fields)
@@ -504,11 +567,14 @@ def enrich_csv(input_path, log):
             row["detection_id"] = det_id
             writer.writerow({k: row.get(k,"") for k in out_fields})
 
+
     log(f"  {len(rows):,} rows processed.", "ok")
     log(f"  Saved: {enriched_path.name}", "ok")
     return enriched_path
 
+
 # ── Step 2 ────────────────────────────────────────────────────────────────────
+
 
 def pad_bbox(x0, y0, x1, y1, img_w, img_h, frac=0.12, min_px=None):
     """Expand a bbox by a buffer, proportional to the box size with a
@@ -522,30 +588,61 @@ def pad_bbox(x0, y0, x1, y1, img_w, img_h, frac=0.12, min_px=None):
     return (max(0, x0 - px), max(0, y0 - py),
             min(img_w, x1 + px), min(img_h, y1 + py))
 
-def draw_bbox_on_image(img, bbox, label, conf, scale):
+
+def draw_bbox_on_image(img, bbox, label, conf, scale, show_conf=True):
     draw = ImageDraw.Draw(img)
+    W, H  = img.width, img.height
     x0,y0 = int(bbox["left"]*scale), int(bbox["top"]*scale)
     x1,y1 = int(bbox["right"]*scale), int(bbox["bottom"]*scale)
-    x0,y0,x1,y1 = pad_bbox(x0, y0, x1, y1, img.width, img.height)
-    draw.rectangle([x0,y0,x1,y1], outline="#00FF00",
-                   width=max(2, min(6, img.width // 350)))
-    text = f"{label}  {conf:.2f}"
-    # Font size proportional to image width — readable after thumbnail
-    fsz  = max(32, img.width // 25)
+    x0,y0,x1,y1 = pad_bbox(x0, y0, x1, y1, W, H)
+    lw = max(2, min(6, W // 350))
+    draw.rectangle([x0,y0,x1,y1], outline="#00FF00", width=lw)
+
+
+    text = f"{label}  {conf:.2f}" if show_conf else f"{label}"
+    # Font size proportional to image width, readable after thumbnailing
+    fsz  = max(32, W // 25)
     try:    font = ImageFont.truetype("arial.ttf", fsz)
     except: font = ImageFont.load_default(size=fsz)
-    # Place the label above the box if there is room, below it otherwise,
-    # so it never sits on top of the detection itself
-    _, mt, _, mb = draw.textbbox((0,0), text, font=font)
-    th = mb - mt
-    label_y = y0 - th if y0 - th >= 0 else y1
-    tb = draw.textbbox((x0,label_y), text, font=font)
-    draw.rectangle(tb, fill="#00FF00")
-    draw.text((x0,label_y), text, fill="#000000", font=font)
+
+
+    # Measure the text and the padded chip that sits behind it. Drawing the
+    # chip ourselves (rather than reusing a text bbox at the draw origin)
+    # lets us place it precisely and keep the text padded off the edges.
+    l, t, r, b = draw.textbbox((0,0), text, font=font)
+    tw, th   = r - l, b - t
+    bpad     = max(2, fsz // 12)      # padding inside the chip, around the text
+    gap      = lw + 2                 # clear space between the chip and the box
+    chip_w   = tw + 2*bpad
+    chip_h   = th + 2*bpad
+
+
+    # Horizontal: line the chip up with the box's left edge, but never let it
+    # run off either side of the image.
+    chip_x = max(0, min(x0, W - chip_w))
+
+
+    # Vertical: prefer just above the box, drop to just below it if there is
+    # no room, so the chip never sits on top of the detection. Always keep it
+    # fully inside the image; only if the box spans the whole frame (no room
+    # either side) do we tuck it inside the top as a last resort.
+    chip_y = y0 - gap - chip_h
+    if chip_y < 0:
+        chip_y = y1 + gap
+        if chip_y + chip_h > H:
+            chip_y = max(0, min(H - chip_h, y0 + gap))
+    chip_y = max(0, min(chip_y, H - chip_h))
+
+
+    draw.rectangle([chip_x, chip_y, chip_x + chip_w, chip_y + chip_h],
+                   fill="#00FF00")
+    draw.text((chip_x + bpad - l, chip_y + bpad - t), text,
+              fill="#000000", font=font)
     return img
 
+
 def resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
-                     bbox_normalised=False, sibling_boxes=None):
+                     bbox_normalised=False, sibling_boxes=None, show_conf=True):
     dst.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(src) as img:
         img = img.convert("RGB")
@@ -556,6 +653,7 @@ def resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                 scale = max_long_edge/le
                 img   = img.resize((int(w*scale),int(h*scale)), Image.LANCZOS)
 
+
         # If bbox coords are normalised (0-1), convert to pixels using original dims
         if bbox_normalised and all(v is not None for v in bbox.values()):
             bbox = {
@@ -564,6 +662,7 @@ def resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                 "right":  int(bbox["right"]  * w),
                 "bottom": int(bbox["bottom"] * h),
             }
+
 
         # Draw sibling detections (other detections in this same source
         # image) permanently, before the green focal box so they sit
@@ -605,10 +704,12 @@ def resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                                 outline="#FFC107",
                                 width=max(2, min(4, img.width // 400)))
 
+
         # Draw bbox only if all coords are present and box has non-zero area
         if (all(v is not None for v in bbox.values()) and
                 bbox["right"] > bbox["left"] and
                 bbox["bottom"] > bbox["top"]):
+
 
             # Blur the person if label is human — GDPR privacy protection
             if label.lower() in ("human", "person", "homo_sapiens"):
@@ -623,14 +724,19 @@ def resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                     region = region.resize((x1-x0, y1-y0), Image.NEAREST)
                     img.paste(region, (x0, y0))
 
-            img = draw_bbox_on_image(img, bbox, label, conf, scale)
+
+            img = draw_bbox_on_image(img, bbox, label, conf, scale,
+                                     show_conf=show_conf)
+
 
         img.save(dst, format="JPEG", quality=quality, optimize=True)
 
+
 def sort_detections(enriched_csv, quality, max_long_edge, log,
-                    classifier_id=""):
+                    classifier_id="", show_conf=True):
     log("\n── Step 2: Sorting, resizing and annotating images ──────────────────", "head")
     rows, fieldnames = load_csv(enriched_csv)
+
 
     required = {"detection_id","image_id","absolute_path","relative_path",
                 "label","confidence","bbox_left","bbox_top","bbox_right","bbox_bottom"}
@@ -638,8 +744,10 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
     if missing:
         raise ValueError(f"Enriched CSV missing columns: {missing}")
 
+
     collection_root = enriched_csv.parent
     validation_dir  = collection_root / "validation"
+
 
     import shutil
     # Resumable / crash-safe sorting. Previously this deleted the whole
@@ -667,11 +775,14 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
     except Exception:
         pass
 
+
     log(f"  Output: {validation_dir}", "ok")
+
 
     # Use the full class list for this model, falling back to observed labels
     full_labels = get_all_labels_for_model(classifier_id)
     observed_labels = sorted({sanitise_label(r.get("label","unknown")) for r in rows})
+
 
     # folder_labels: only observed classes (no empty folders)
     # correction_labels: full ordered list for valid_species.txt (includes unidentifiable)
@@ -696,11 +807,14 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
         folder_labels     = observed_labels
         correction_labels = ["unidentifiable", "empty"] + observed_labels
 
+
     all_labels = folder_labels  # used for folder creation and CSV writing
+
 
     validation_rows = defaultdict(list)
     success = skipped = 0
     errors  = []
+
 
     for row_num, row in enumerate(rows, start=2):
         det_id  = row.get("detection_id","").strip()
@@ -719,11 +833,14 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
         else:
             bbox = {k: _to_int(row.get(f"bbox_{k}")) for k in ("left","top","right","bottom")}
 
+
         if not src.exists():
             msg = f"Row {row_num}: not found - {src}"
             log(f"  SKIP  {msg}", "skip"); errors.append(msg); skipped += 1; continue
 
+
         dst = validation_dir / label / f"{det_id}.jpg"
+
 
         # Resume support: if this image was already sorted in a previous
         # (interrupted) run, don't redo the expensive decode/resize/draw.
@@ -740,9 +857,10 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
             })
             continue
 
+
         try:
             resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
-                             bbox_normalised=bbox_norm)
+                             bbox_normalised=bbox_norm, show_conf=show_conf)
             log(f"  OK    {src.name} → {label}/{det_id}.jpg  (conf {conf_s})", "ok")
             success += 1
             validation_rows[label].append({
@@ -757,9 +875,11 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
             msg = f"Row {row_num}: {src.name} - {e}"
             log(f"  ERROR {msg}", "error"); errors.append(msg); skipped += 1
 
+
     val_fields = ["detection_id","image_id","image_name","original_path",
                   "datetime","label","confidence","correct_label","validated",
                   "bbox_left","bbox_top","bbox_right","bbox_bottom","bbox_normalised"]
+
 
     # Write validation.csv for folders that have images
     for label, vrows in validation_rows.items():
@@ -768,6 +888,7 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
             w = csv.DictWriter(f, fieldnames=val_fields)
             w.writeheader(); w.writerows(vrows)
         log(f"  CSV   {label}/validation.csv  ({len(vrows):,} rows)", "ok")
+
 
     # Write valid_species.txt into every folder with images
     # Uses correction_labels (full ordered list with unidentifiable first)
@@ -778,17 +899,21 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
             for sp in correction_labels:
                 f.write(f"{sp}\n")
 
+
     log(f"  REF   valid_species.txt written to {len(all_labels)} class folders", "ok")
+
 
     log("─"*60, "head")
     log(f"Done.  {success:,} images processed,  {skipped:,} skipped/errored.",
         "ok" if skipped == 0 else "skip")
+
 
     if errors:
         lp = validation_dir / "errors.log"
         lp.parent.mkdir(parents=True, exist_ok=True)
         lp.write_text("\n".join(errors))
         log(f"Error log: {lp}", "error")
+
 
     # Sort finished cleanly for this dataset — drop the in-progress marker
     # so a later launch knows the folder is complete and won't try to resume.
@@ -799,11 +924,15 @@ def sort_detections(enriched_csv, quality, max_long_edge, log,
     except Exception:
         pass
 
+
     return success, skipped
+
+
 
 
 def check_validation_complete(project_dir, enriched_csv=None):
     """Check whether a project's validation\\ folder is complete.
+
 
     Returns a dict:
       status : "complete" | "incomplete" | "missing" | "unknown"
@@ -812,6 +941,7 @@ def check_validation_complete(project_dir, enriched_csv=None):
       missing_ref     : list of species folders lacking valid_species.txt
       in_progress     : True if a .sort_source marker is present (an
                         interrupted sort)
+
 
     "incomplete" means the sort was interrupted or some per-folder files are
     missing; the caller can offer to resume the sort to finish it.
@@ -822,14 +952,17 @@ def check_validation_complete(project_dir, enriched_csv=None):
     result = {"status": "unknown", "reason": "",
               "missing_csv": [], "missing_ref": [], "in_progress": False}
 
+
     if not vdir.exists():
         result["status"] = "missing"
         result["reason"] = "No validation folder found."
         return result
 
+
     marker = vdir / ".sort_source"
     if marker.exists():
         result["in_progress"] = True
+
 
     # Species folders are any subdirectory containing at least one image
     species_dirs = []
@@ -841,11 +974,13 @@ def check_validation_complete(project_dir, enriched_csv=None):
         if has_img:
             species_dirs.append(d)
 
+
     for d in species_dirs:
         if not (d / "validation.csv").exists():
             result["missing_csv"].append(d.name)
         if not (d / "valid_species.txt").exists():
             result["missing_ref"].append(d.name)
+
 
     if result["in_progress"]:
         result["status"] = "incomplete"
@@ -868,7 +1003,9 @@ def check_validation_complete(project_dir, enriched_csv=None):
         result["status"] = "complete"
         result["reason"] = f"{len(species_dirs)} species folder(s), all with data files."
 
+
     return result
+
 
 def run_pipeline(csv_path, quality, max_long_edge, log):
     enriched = enrich_csv(csv_path, log)
@@ -876,8 +1013,11 @@ def run_pipeline(csv_path, quality, max_long_edge, log):
 
 
 
+
+
+
 def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
-                            classifier_id=""):
+                            classifier_id="", show_conf=True):
     """Wrapper around sort_detections that also returns per-species counts."""
     rows, fieldnames = load_csv(enriched_csv)
     required = {"detection_id","image_id","absolute_path","relative_path",
@@ -886,8 +1026,10 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
     if missing:
         raise ValueError(f"Enriched CSV missing columns: {missing}")
 
+
     collection_root = enriched_csv.parent
     validation_dir  = collection_root / "validation"
+
 
     import shutil
     # Resumable / crash-safe (see sort_detections for the full rationale):
@@ -910,7 +1052,9 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
     except Exception:
         pass
 
+
     log(f"  Output: {validation_dir}", "ok")
+
 
     # Use full class list for this model
     full_labels = get_all_labels_for_model(classifier_id)
@@ -935,18 +1079,22 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
         folder_labels     = observed_labels
         correction_labels = ["unidentifiable", "empty"] + observed_labels
 
+
     all_labels = folder_labels
+
 
     validation_rows = defaultdict(list)
     species_counts  = defaultdict(int)
     success = skipped = 0
     errors  = []
 
+
     # Group all detections by source image so each validation image gets
     # its sibling detections drawn in permanently at sort time
     by_image = defaultdict(list)
     for r in rows:
         by_image[r.get("image_id","").strip()].append(r)
+
 
     def _sibling_boxes_for(img_id, det_id):
         sibs = []
@@ -964,7 +1112,9 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
             sibs.append((sb, s_norm, sanitise_label(s.get("label",""))))
         return sibs
 
+
     log("\n── Step 2: Sorting, resizing and annotating images ──────────────────", "head")
+
 
     for row_num, row in enumerate(rows, start=2):
         det_id  = row.get("detection_id","").strip()
@@ -984,11 +1134,14 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
         else:
             bbox = {k: _to_int(row.get(f"bbox_{k}")) for k in ("left","top","right","bottom")}
 
+
         if not src.exists():
             msg = f"Row {row_num}: not found - {src}"
             log(f"  SKIP  {msg}", "skip"); errors.append(msg); skipped += 1; continue
 
+
         dst = validation_dir / label / f"{det_id}.jpg"
+
 
         # Resume: skip images already sorted by a prior interrupted run,
         # but still record the row (and count) so outputs stay complete.
@@ -1005,10 +1158,12 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
             })
             continue
 
+
         try:
             resize_draw_save(src, dst, quality, max_long_edge, bbox, label, conf,
                              bbox_normalised=bbox_norm,
-                             sibling_boxes=_sibling_boxes_for(img_id, det_id))
+                             sibling_boxes=_sibling_boxes_for(img_id, det_id),
+                             show_conf=show_conf)
             log(f"  OK    {src.name} → {label}/{det_id}.jpg  (conf {conf_s})", "ok")
             success += 1
             species_counts[label] += 1
@@ -1024,6 +1179,7 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
             msg = f"Row {row_num}: {src.name} - {e}"
             log(f"  ERROR {msg}", "error"); errors.append(msg); skipped += 1
 
+
     val_fields = ["detection_id","image_id","image_name","original_path",
                   "datetime","label","confidence","correct_label","validated"]
     for label, vrows in validation_rows.items():
@@ -1033,6 +1189,7 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
             w.writeheader(); w.writerows(vrows)
         log(f"  CSV   {label}/validation.csv  ({len(vrows):,} rows)", "ok")
 
+
     # Write valid_species.txt into every folder with images
     for lbl in all_labels:
         lbl_s    = sanitise_label(lbl)
@@ -1041,22 +1198,27 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
             for sp in correction_labels:
                 f.write(f"{sp}\n")
 
+
     log(f"  REF   valid_species.txt written to {len(all_labels)} class folders", "ok")
+
 
     # Marker: sibling boxes are baked into these images, so the Validate
     # gallery (here or on a volunteer's machine) skips loading the master
     # CSV and drawing them live
     (validation_dir / ".siblings_baked").write_text("1", encoding="utf-8")
 
+
     log("─"*60, "head")
     log(f"Done.  {success:,} images processed,  {skipped:,} skipped/errored.",
         "ok" if skipped == 0 else "skip")
+
 
     if errors:
         lp = validation_dir / "errors.log"
         lp.parent.mkdir(parents=True, exist_ok=True)
         lp.write_text("\n".join(errors))
         log(f"Error log: {lp}", "error")
+
 
     # Completed cleanly — drop the in-progress marker.
     try:
@@ -1066,18 +1228,176 @@ def sort_detections_counted(enriched_csv, quality, max_long_edge, log,
     except Exception:
         pass
 
+
     return success, skipped, dict(species_counts)
+
+
+
+
+def redraw_validation_images(master_csv, quality, log, show_conf=True,
+                             progress=None, stop_flag=None):
+    """Re-render the annotated validation JPGs in place, using the current
+    annotation options (image quality and the confidence-score label),
+    WITHOUT re-running detection and WITHOUT touching any validation state.
+
+
+    Only images that already exist in the validation folder are redrawn, so
+    this reproduces exactly the set that was sorted before, just with the
+    current annotation settings. Sibling boxes are recomputed from the master
+    CSV the same way the sort does, so they stay baked in. Nothing is written
+    except the image files themselves, so validated flags and corrections
+    (which live in the validation store, not the images) are untouched.
+
+
+    Returns (redrawn, skipped, stopped).
+    """
+    master_csv = Path(master_csv)
+    validation_dir = master_csv.parent / "validation"
+
+
+    if not master_csv.exists():
+        raise FileNotFoundError(
+            "No results_with_ids.csv found for this project. Run wildtag "
+            "first so there is something to redraw.")
+    if not validation_dir.exists():
+        raise FileNotFoundError(
+            "No validation folder found for this project. Run wildtag first "
+            "to create the validation images.")
+
+
+    rows, fieldnames = load_csv(master_csv)
+    required = {"detection_id","image_id","absolute_path","relative_path",
+                "label","confidence","bbox_left","bbox_top","bbox_right","bbox_bottom"}
+    missing = required - set(fieldnames)
+    if missing:
+        raise ValueError(f"Results CSV missing columns: {missing}")
+
+
+    # Group detections by source image so each redrawn image gets the same
+    # sibling boxes the original sort baked in.
+    by_image = defaultdict(list)
+    for r in rows:
+        by_image[r.get("image_id","").strip()].append(r)
+
+
+    def _sibling_boxes_for(img_id, det_id):
+        sibs = []
+        for s in by_image.get(img_id, []):
+            if s.get("detection_id","").strip() == det_id:
+                continue
+            s_norm = s.get("bbox_normalised", "0") == "1"
+            sb = {}
+            for k in ("left","top","right","bottom"):
+                v = s.get(f"bbox_{k}")
+                try:
+                    sb[k] = float(v) if s_norm else _to_int(v)
+                except (TypeError, ValueError):
+                    sb[k] = None
+            sibs.append((sb, s_norm, sanitise_label(s.get("label",""))))
+        return sibs
+
+
+    log("\n── Redrawing validation images ──────────────────────────────────────", "head")
+    log(f"  Output: {validation_dir}", "ok")
+    log(f"  Confidence score on boxes: {'on' if show_conf else 'off'}", "ok")
+
+
+    redrawn = skipped = 0
+    stopped = False
+    errors  = []
+    total   = len(rows)
+
+
+    for i, row in enumerate(rows):
+        if stop_flag and stop_flag():
+            stopped = True
+            log("\nStop requested - finishing here. Images already redrawn "
+                "are saved.", "skip")
+            break
+
+
+        det_id = row.get("detection_id","").strip()
+        img_id = row.get("image_id","").strip()
+        label  = sanitise_label(row.get("label","unknown"))
+        dst    = validation_dir / label / f"{det_id}.jpg"
+
+
+        # Only redraw what is actually on disk, so we mirror the previous sort
+        # (e.g. detections that were filtered out or never sorted are left be).
+        if not (dst.exists() and dst.stat().st_size > 0):
+            skipped += 1
+            if progress: progress(i+1, total)
+            continue
+
+
+        src = build_image_path(row["absolute_path"], row["relative_path"])
+        if not src.exists():
+            msg = f"{det_id}: source image not found - {src}"
+            log(f"  SKIP  {msg}", "skip"); errors.append(msg); skipped += 1
+            if progress: progress(i+1, total)
+            continue
+
+
+        conf_s = row.get("confidence","NA")
+        try:    conf = float(conf_s)
+        except: conf = 0.0
+        bbox_norm = row.get("bbox_normalised", "0") == "1"
+        if bbox_norm:
+            def _to_float(v):
+                try: return float(v)
+                except: return None
+            bbox = {k: _to_float(row.get(f"bbox_{k}")) for k in ("left","top","right","bottom")}
+        else:
+            bbox = {k: _to_int(row.get(f"bbox_{k}")) for k in ("left","top","right","bottom")}
+
+
+        try:
+            resize_draw_save(src, dst, quality, None, bbox, label, conf,
+                             bbox_normalised=bbox_norm,
+                             sibling_boxes=_sibling_boxes_for(img_id, det_id),
+                             show_conf=show_conf)
+            redrawn += 1
+        except Exception as e:
+            msg = f"{det_id}: {e}"
+            log(f"  ERROR {msg}", "error"); errors.append(msg); skipped += 1
+
+
+        if progress: progress(i+1, total)
+
+
+    log("─"*60, "head")
+    log(f"Done.  {redrawn:,} images redrawn,  {skipped:,} skipped.",
+        "ok" if not errors else "skip")
+
+
+    if errors:
+        lp = validation_dir / "redraw_errors.log"
+        try:
+            lp.write_text("\n".join(errors), encoding="utf-8")
+            log(f"Error log: {lp}", "error")
+        except Exception:
+            pass
+
+
+    return redrawn, skipped, stopped
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  VALIDATION STORE (SQLite)  —  validation state lives here, not in the big CSV
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 VALIDATION_DB_NAME = "validation.db"
+
+
 
 
 def _val_db_path(project_dir):
     return Path(project_dir) / VALIDATION_DB_NAME
+
+
 
 
 def _val_db_connect(project_dir):
@@ -1098,6 +1418,8 @@ def _val_db_connect(project_dir):
         )""")
     con.commit()
     return con
+
+
 
 
 def val_db_upsert(project_dir, rows, source):
@@ -1127,6 +1449,8 @@ def val_db_upsert(project_dir, rows, source):
         return len(payload)
     finally:
         con.close()
+
+
 
 
 def val_db_stats(project_dir):
@@ -1163,6 +1487,8 @@ def val_db_stats(project_dir):
         con.close()
 
 
+
+
 def val_db_corrections(project_dir):
     """{detection_id: correct_label} for validated+corrected rows (map overlay)."""
     p = _val_db_path(project_dir)
@@ -1176,6 +1502,8 @@ def val_db_corrections(project_dir):
         return {d: c for d, c in cur.fetchall()}
     finally:
         con.close()
+
+
 
 
 def val_db_map(project_dir):
@@ -1192,6 +1520,8 @@ def val_db_map(project_dir):
         con.close()
 
 
+
+
 def val_db_last_write(project_dir):
     p = _val_db_path(project_dir)
     if not p.exists():
@@ -1203,6 +1533,8 @@ def val_db_last_write(project_dir):
         return row[0] if row else None
     finally:
         con.close()
+
+
 
 
 def val_db_migrate_if_needed(project_dir, master_csv, val_folder, log=None):
@@ -1245,6 +1577,8 @@ def val_db_migrate_if_needed(project_dir, master_csv, val_folder, log=None):
     return True
 
 
+
+
 def val_db_export_csv(project_dir, master_csv, log=None):
     """Regenerate the combined results_with_ids.csv from the detection record +
     the db overlay. Atomic write. Returns (rows_written, error_message);
@@ -1262,20 +1596,21 @@ def val_db_export_csv(project_dir, master_csv, log=None):
             reader = csv.DictReader(f)
             fields = list(reader.fieldnames or [])
             rows   = list(reader)
-        # Drop the obsolete human_verified column if a pre-existing file still
-        # carries it, so an ordinary Export cleans up older projects without
-        # needing a full reprocess.
+        # Drop the obsolete human_verified column if a pre-existing file
+        # still carries it, so an ordinary Export cleans up older projects
+        # without needing a full reprocess.
         fields = [c for c in fields if c != "human_verified"]
-        # Ensure the validation and the three definitive label columns exist:
-        #   ai_label     - the model's predicted species (from 'label')
-        #   human_label  - the human's species where validated (correction if
-        #                  changed, else the confirmed AI label), blank if not
-        #                  validated
-        #   best_label   - human_label if present, else ai_label
+        # Ensure validation + the three definitive label columns exist:
+        #   ai_label    - the model prediction (from label)
+        #   human_label - human species where validated (correction if
+        #                 changed, confirmed AI label if validated-unchanged,
+        #                 blank if not validated)
+        #   best_label  - human_label if present, else ai_label
         for col in ("correct_label", "validated",
                     "ai_label", "human_label", "best_label"):
             if col not in fields:
                 fields.append(col)
+
 
         fd, tmp = __import__("tempfile").mkstemp(
             dir=str(master_csv.parent), prefix=".rwi_", suffix=".tmp")
@@ -1287,7 +1622,6 @@ def val_db_export_csv(project_dir, master_csv, log=None):
             for r in rows:
                 did = (r.get("detection_id") or "").strip()
                 is_validated = (r.get("validated") or "").strip().lower() == "yes"
-                correct = ""
                 if did in overlay:
                     validated, correct = overlay[did]
                     is_validated = bool(validated) or is_validated
@@ -1295,20 +1629,21 @@ def val_db_export_csv(project_dir, master_csv, log=None):
                                      (r.get("validated") or "")
                     if correct:
                         r["correct_label"] = correct
-                # derive the three definitive columns
+                # derive the three definitive label columns
                 ai = (r.get("label") or "").strip()
                 corr = (r.get("correct_label") or "").strip()
                 if corr:
-                    human = corr               # human changed the label
+                    human = corr
                 elif is_validated:
-                    human = ai                 # human confirmed the AI label
+                    human = ai
                 else:
-                    human = ""                 # not validated -> no human tag
+                    human = ""
                 r["ai_label"]    = ai
                 r["human_label"] = human
                 r["best_label"]  = human if human else ai
                 w.writerow({k: r.get(k, "") for k in fields})
                 n += 1
+
 
         try:
             os.replace(tmp, master_csv)
@@ -1318,6 +1653,7 @@ def val_db_export_csv(project_dir, master_csv, log=None):
                     "Could not write results_with_ids.csv - it looks like the "
                     "file is open in another program (e.g. Excel). Close it and "
                     "try Export again.")
+
 
         # stamp export time in the db meta
         con = _val_db_connect(project_dir)
@@ -1341,6 +1677,8 @@ def val_db_export_csv(project_dir, master_csv, log=None):
             pass
 
 
+
+
 def val_db_is_stale(project_dir):
     """True if there are validations newer than the last export (hard-close
     safety check on project open)."""
@@ -1360,11 +1698,15 @@ def val_db_is_stale(project_dir):
         con.close()
 
 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  GUI
 # ══════════════════════════════════════════════════════════════════════════════
 
+
 class WildTagApp(tk.Tk):
+
 
     def __init__(self):
         super().__init__()
@@ -1379,6 +1721,7 @@ class WildTagApp(tk.Tk):
         except Exception:
             pass
 
+
         # On Windows, a pythonw.exe-hosted app shows Python's icon in the
         # taskbar (Windows groups it under the python executable) even after
         # iconbitmap sets the window icon. Declaring our own AppUserModelID
@@ -1391,6 +1734,7 @@ class WildTagApp(tk.Tk):
         except Exception:
             pass
 
+
         ico = Path(__file__).parent / "wildtag.ico"
         if ico.exists():
             try:
@@ -1398,6 +1742,7 @@ class WildTagApp(tk.Tk):
                 self.after(100, lambda: self.iconbitmap(str(ico)))
             except Exception:
                 pass
+
 
         self._settings    = load_settings()
         # Apply saved theme before building UI
@@ -1414,6 +1759,7 @@ class WildTagApp(tk.Tk):
         self._last_run    = {}
         self._last_output_dir = None   # summary data from most recent run
 
+
         # Aggregate cache — computed once from results_with_ids.csv and
         # reused by Map, Summary and the confusion matrix, so switching
         # panes never re-parses the (potentially huge) master file. Keyed
@@ -1422,10 +1768,12 @@ class WildTagApp(tk.Tk):
         self._agg_cache_key = None      # (path_str, mtime)
         self._agg_loading = False
 
+
         # Run-state tracking, used by the stop button and to stop the
         # theme switcher restarting the app out from under an active run
         self._job_running = False
         self._stop_event  = threading.Event()
+
 
         # Validation gallery: a small thread pool decodes tile images off
         # the UI thread (so slow network-drive reads overlap instead of
@@ -1435,10 +1783,12 @@ class WildTagApp(tk.Tk):
         self._val_decode_pool = ThreadPoolExecutor(max_workers=6)
         self._val_gallery_gen = 0
 
+
         self._build_styles()
         self._build_ui()
         self._restore_settings()
         self._show_pane(self._active_pane)
+
 
         # Show onboarding on first launch
         if not self._settings.get("onboarding_shown") and not validate_only:
@@ -1446,7 +1796,9 @@ class WildTagApp(tk.Tk):
         elif not validate_only:
             self.after(1500, self._check_gpu_upgrade)
 
+
     # ── STYLES ────────────────────────────────────────────────────────────────
+
 
     def _build_styles(self):
         self._fonts = {
@@ -1459,7 +1811,9 @@ class WildTagApp(tk.Tk):
             "tile":  ("Segoe UI", 13, "bold"),
         }
 
+
     # ── HELPERS ───────────────────────────────────────────────────────────────
+
 
     def _show_onboarding(self):
         """First-launch onboarding dialog."""
@@ -1469,6 +1823,7 @@ class WildTagApp(tk.Tk):
         win.resizable(True, True)
         win.grab_set()
 
+
         # Centre on screen — taller to fit all content
         win.update_idletasks()
         w, h = 580, 680
@@ -1477,10 +1832,12 @@ class WildTagApp(tk.Tk):
         win.geometry(f"{w}x{h}+{x}+{y}")
         win.minsize(520, 500)
 
+
         # Header bar
         header = tk.Frame(win, bg=C["canopy"], height=80)
         header.pack(fill="x")
         header.pack_propagate(False)
+
 
         # Logo + title in header
         hinner = tk.Frame(header, bg=C["canopy"])
@@ -1502,9 +1859,11 @@ class WildTagApp(tk.Tk):
                  font=("Segoe UI", 22, "bold"),
                  bg=C["canopy"], fg="#ffffff").pack(side="left")
 
+
         # Scrollable body
         body_outer = tk.Frame(win, bg=C["white"])
         body_outer.pack(fill="both", expand=True)
+
 
         canvas = tk.Canvas(body_outer, bg=C["white"],
                            highlightthickness=0)
@@ -1514,8 +1873,10 @@ class WildTagApp(tk.Tk):
         sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
+
         body = tk.Frame(canvas, bg=C["white"])
         body_win = canvas.create_window((0,0), window=body, anchor="nw")
+
 
         def _resize(e):
             canvas.itemconfig(body_win, width=e.width)
@@ -1524,19 +1885,23 @@ class WildTagApp(tk.Tk):
         canvas.bind("<Configure>", _resize)
         body.bind("<Configure>", _scroll_cfg)
 
+
         # Mouse wheel
         def _wheel(e):
             canvas.yview_scroll(int(-1*(e.delta/120)), "units")
         canvas.bind_all("<MouseWheel>", _wheel)
 
+
         body_pad = tk.Frame(body, bg=C["white"])
         body_pad.pack(fill="both", expand=True, padx=32, pady=20)
+
 
         tk.Label(body_pad,
                  text="Before you get started",
                  font=self._fonts["h2"],
                  bg=C["white"], fg=C["canopy"],
                  anchor="w").pack(fill="x", pady=(0,12))
+
 
         # Step 1
         self._onboard_step(body_pad, "1",
@@ -1551,6 +1916,7 @@ class WildTagApp(tk.Tk):
                     "    site2\\   IMG_0001.JPG ...\n"
                     "  deployment.csv")
 
+
         # Step 2
         self._onboard_step(body_pad, "2",
             "Add a deployment metadata file",
@@ -1558,6 +1924,7 @@ class WildTagApp(tk.Tk):
             "camera site. At minimum include: site name, latitude, longitude, "
             "deployment start date and retrieval date. This links your detections "
             "to geographic locations and enables Camtrap DP export.")
+
 
         # Template download button
         tmpl_row = tk.Frame(body_pad, bg=C["white"])
@@ -1571,6 +1938,7 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=10, pady=5,
                   cursor="hand2").pack(side="left")
 
+
         # Step 3
         self._onboard_step(body_pad, "3",
             "Run wildtag",
@@ -1579,14 +1947,17 @@ class WildTagApp(tk.Tk):
             "species identification model, and save all results alongside "
             "your images folder.")
 
+
         # ── Pinned footer — always visible at bottom ──────────────────────
         footer = tk.Frame(win, bg=C["white"],
                           bd=0, relief="flat")
         footer.pack(fill="x", side="bottom")
         tk.Frame(footer, bg=C["border"], height=1).pack(fill="x")
 
+
         footer_pad = tk.Frame(footer, bg=C["white"])
         footer_pad.pack(fill="x", padx=32, pady=14)
+
 
         # Required checklist
         tk.Label(footer_pad,
@@ -1595,14 +1966,18 @@ class WildTagApp(tk.Tk):
                  bg=C["white"], fg=C["text_muted"],
                  anchor="w").pack(fill="x", pady=(0,6))
 
+
         check_frame = tk.Frame(footer_pad, bg=C["white"])
         check_frame.pack(fill="x", pady=(0,10))
+
 
         has_folder  = tk.BooleanVar(value=False)
         has_deploy  = tk.BooleanVar(value=False)
 
+
         # Proceed button — defined BEFORE checkboxes so _update_btn can reference it
         btn_row = tk.Frame(footer_pad, bg=C["white"])
+
 
         def _proceed():
             self._settings["onboarding_shown"] = True
@@ -1610,6 +1985,7 @@ class WildTagApp(tk.Tk):
             canvas.unbind_all("<MouseWheel>")
             win.destroy()
             self.after(500, self._check_gpu_upgrade)
+
 
         proceed_btn = tk.Button(btn_row,
                   text="I'm ready - let's go",
@@ -1620,6 +1996,7 @@ class WildTagApp(tk.Tk):
                   state="disabled")
         proceed_btn.pack(side="right")
 
+
         def _update_btn(*_):
             if has_folder.get() and has_deploy.get():
                 proceed_btn.config(state="normal",
@@ -1629,6 +2006,7 @@ class WildTagApp(tk.Tk):
                 proceed_btn.config(state="disabled",
                                    bg=C["border"], fg=C["text_muted"],
                                    cursor="")
+
 
         tk.Checkbutton(check_frame,
                        text="I have a project folder with an images\\ subfolder "
@@ -1642,6 +2020,7 @@ class WildTagApp(tk.Tk):
                        wraplength=480, justify="left",
                        cursor="hand2").pack(anchor="w", pady=(0,6))
 
+
         tk.Checkbutton(check_frame,
                        text="I have a deployment.csv in my project folder "
                             "with site names, coordinates and dates",
@@ -1654,13 +2033,16 @@ class WildTagApp(tk.Tk):
                        wraplength=480, justify="left",
                        cursor="hand2").pack(anchor="w", pady=(0,4))
 
+
         # Pack button row after checkboxes
         btn_row.pack(fill="x", pady=(8,0))
+
 
     def _onboard_step(self, parent, num, title, body_text, example=None):
         """Render a single numbered step in the onboarding dialog."""
         row = tk.Frame(parent, bg=C["white"])
         row.pack(fill="x", pady=(0, 10))
+
 
         # Number badge
         badge = tk.Frame(row, bg=C["canopy"], width=26, height=26)
@@ -1671,20 +2053,24 @@ class WildTagApp(tk.Tk):
                  bg=C["canopy"], fg="#ffffff").place(
                      relx=0.5, rely=0.5, anchor="center")
 
+
         # Text column
         col = tk.Frame(row, bg=C["white"])
         col.pack(side="left", fill="x", expand=True)
+
 
         tk.Label(col, text=title,
                  font=self._fonts["head"],
                  bg=C["white"], fg=C["canopy"],
                  anchor="w").pack(fill="x")
 
+
         tk.Label(col, text=body_text,
                  font=self._fonts["small"],
                  bg=C["white"], fg=C["text_muted"],
                  wraplength=430, justify="left",
                  anchor="w").pack(fill="x", pady=(2,0))
+
 
         if example:
             tk.Label(col, text=example,
@@ -1694,11 +2080,13 @@ class WildTagApp(tk.Tk):
                      padx=8, pady=4).pack(
                          fill="x", pady=(4,0))
 
+
     def _repair_venv_shebangs(self):
         """
         Rewrite baked absolute shebangs in wildtag_env's (and validate_env's)
         console-script wrappers, such as Scripts\\pip.exe's companion
         "-script.py" file, so they point at THIS folder's python.exe.
+
 
         pip bakes an absolute path into these wrappers at the moment a
         package is installed. Since wildtag_env is built once and then
@@ -1711,6 +2099,7 @@ class WildTagApp(tk.Tk):
             fix_shebangs.main()
         except Exception:
             pass
+
 
     def _check_gpu_upgrade(self):
         """
@@ -1727,6 +2116,7 @@ class WildTagApp(tk.Tk):
         except Exception:
             pass
 
+
         # Check for NVIDIA GPU
         try:
             import subprocess
@@ -1738,12 +2128,15 @@ class WildTagApp(tk.Tk):
         except Exception:
             has_nvidia = False
 
+
         if not has_nvidia:
             return
+
 
         # User previously declined — don't ask again
         if self._settings.get("gpu_upgrade_declined"):
             return
+
 
         # A previous install completed but CUDA still wasn't available
         # afterwards — this GPU/driver combination isn't working, so don't
@@ -1751,6 +2144,7 @@ class WildTagApp(tk.Tk):
         # the user re-trigger the check manually once they've updated drivers.
         if self._settings.get("gpu_install_failed"):
             return
+
 
         gpu_name = result.stdout.strip().splitlines()[0]
         answer = messagebox.askyesno(
@@ -1761,16 +2155,20 @@ class WildTagApp(tk.Tk):
             f"This requires an internet connection and will take a few minutes. "
             f"wildtag will remain usable during the upgrade.")
 
+
         if not answer:
             self._settings["gpu_upgrade_declined"] = True
             save_settings(self._settings)
             return
 
+
         self._gpu_upgrade_dialog()
+
 
     def _gpu_upgrade_dialog(self):
         """Show a progress window and install GPU PyTorch silently."""
         import subprocess, threading
+
 
         win = tk.Toplevel(self)
         win.title("Enabling GPU acceleration")
@@ -1778,6 +2176,7 @@ class WildTagApp(tk.Tk):
         win.resizable(False, False)
         win.configure(bg=C["white"])
         win.grab_set()
+
 
         tk.Label(win, text="Installing GPU PyTorch...",
                  font=self._fonts["h2"], bg=C["white"],
@@ -1787,10 +2186,12 @@ class WildTagApp(tk.Tk):
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"], wraplength=400).pack(pady=(0, 16))
 
+
         progress_var = tk.StringVar(value="Starting...")
         tk.Label(win, textvariable=progress_var,
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["forest"]).pack(pady=4)
+
 
         # Progress bar simulation
         bar_frame = tk.Frame(win, bg=C["border"], height=6)
@@ -1798,12 +2199,14 @@ class WildTagApp(tk.Tk):
         bar_fill = tk.Frame(bar_frame, bg=C["forest"], height=6, width=0)
         bar_fill.place(x=0, y=0, relheight=1)
 
+
         def _animate_bar(pct):
             try:
                 w = int(bar_frame.winfo_width() * pct / 100)
                 bar_fill.place(x=0, y=0, relheight=1, width=max(1, w))
             except Exception:
                 pass
+
 
         def _install():
             # Resolve python.exe directly, relative to this file, and call
@@ -1821,6 +2224,7 @@ class WildTagApp(tk.Tk):
             if not python_exe.exists():
                 python_exe = Path(__file__).parent / "wildtag_env" / "bin" / "python"
 
+
             cmd = [
                 str(python_exe), "-m", "pip", "install", "torch", "torchvision",
                 "--upgrade", "--force-reinstall",
@@ -1828,27 +2232,33 @@ class WildTagApp(tk.Tk):
                 "--quiet",
             ]
 
+
             try:
                 progress_var.set("Downloading GPU PyTorch (this may take a few minutes)...")
                 self.after(0, lambda: _animate_bar(10))
+
 
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT, text=True,
                     creationflags=_NO_WINDOW)
 
+
                 # Pulse the bar while waiting
                 for i, line in enumerate(proc.stdout):
                     pct = min(90, 10 + i * 2)
                     self.after(0, lambda p=pct: _animate_bar(p))
 
+
                 proc.wait()
+
 
                 if proc.returncode != 0:
                     self.after(0, lambda: _animate_bar(100))
                     progress_var.set("Installation failed. Try running setup_gpu.bat manually.")
                     self.after(3000, win.destroy)
                     return
+
 
                 # pip exiting 0 only means the wheel installed — it does not
                 # mean CUDA actually works on this GPU/driver. Verify in a
@@ -1860,6 +2270,7 @@ class WildTagApp(tk.Tk):
                     capture_output=True, timeout=60,
                     creationflags=_NO_WINDOW)
                 self.after(0, lambda: _animate_bar(100))
+
 
                 if verify.returncode == 0:
                     progress_var.set("Done! Restarting wildtag...")
@@ -1880,11 +2291,14 @@ class WildTagApp(tk.Tk):
                         "check again on next launch."))
                     self.after(500, win.destroy)
 
+
             except Exception as e:
                 progress_var.set(f"Error: {e}")
                 self.after(3000, win.destroy)
 
+
         threading.Thread(target=_install, daemon=True).start()
+
 
     def _gpu_upgrade_complete(self, win):
         """Restart wildtag after GPU PyTorch installed."""
@@ -1896,6 +2310,7 @@ class WildTagApp(tk.Tk):
         # Restart the process
         subprocess.Popen([sys.executable] + sys.argv, creationflags=_NO_WINDOW)
         self.destroy()
+
 
     def _on_app_close(self):
         """On a clean close, export results if the validation store has
@@ -1925,11 +2340,13 @@ class WildTagApp(tk.Tk):
             pass
         self.destroy()
 
+
     def _card(self, parent):
         outer = tk.Frame(parent, bg=C["border"], padx=1, pady=1)
         inner = tk.Frame(outer, bg=C["white"], padx=16, pady=12)
         inner.pack(fill="both", expand=True)
         return outer, inner
+
 
     def _section_label(self, parent, text):
         f = tk.Frame(parent, bg=C["frost"])
@@ -1937,6 +2354,7 @@ class WildTagApp(tk.Tk):
                  bg=C["frost"], fg=C["text_muted"], anchor="w").pack(fill="x")
         tk.Frame(f, bg=C["mist"], height=1).pack(fill="x", pady=(2, 6))
         return f
+
 
     def _wrap_label(self, parent, text, **kw):
         """A label that wraps to fit its container width automatically."""
@@ -1947,6 +2365,7 @@ class WildTagApp(tk.Tk):
         lbl.bind("<Configure>",
                  lambda e: lbl.config(wraplength=max(100, e.width - 4)))
         return lbl
+
 
     def _browse_entry(self, parent, var, mode="file", title="Select"):
         """Entry + browse button row, returns the frame."""
@@ -1962,6 +2381,7 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=10, cursor="hand2").pack(side="left", padx=(8,0))
         return row
 
+
     def _pick_file(self, var, title):
         p = filedialog.askopenfilename(title=title,
             filetypes=[
@@ -1972,12 +2392,15 @@ class WildTagApp(tk.Tk):
             ])
         if p: var.set(p)
 
+
     def _pick_dir(self, var, title):
         p = filedialog.askdirectory(title=title)
         if not p:
             return
 
+
         project = Path(p)
+
 
         # If this looks like a project folder check deployment file + alignment
         if "project" in title.lower() or "images" not in title.lower():
@@ -1985,6 +2408,7 @@ class WildTagApp(tk.Tk):
                 (project / name).exists()
                 for name in ["deployment.csv", "deployment.xlsx",
                              "deployments.csv", "deployments.xlsx"])
+
 
             if not dep_exists:
                 answer = messagebox.askyesno(
@@ -2004,7 +2428,9 @@ class WildTagApp(tk.Tk):
                 # Deployment file exists — check site alignment
                 self._check_deployment_alignment(project)
 
+
         var.set(p)
+
 
         # Auto-populate validate and distribute folder fields
         proj = Path(p)
@@ -2018,6 +2444,7 @@ class WildTagApp(tk.Tk):
             dist = proj / "distribute"
             self._dist_out_var.set(str(dist))
 
+
     def _check_deployment_alignment(self, project: Path) -> bool:
         """
         Check that every site folder in images\\ has a row in deployment.csv
@@ -2028,10 +2455,12 @@ class WildTagApp(tk.Tk):
         if not images_dir.exists():
             return True  # no images folder yet — skip
 
+
         # Get site folders (subdirectories of images/)
         site_folders = {d.name for d in images_dir.iterdir() if d.is_dir()}
         if not site_folders:
             return True
+
 
         # Read deployment file
         dep_file = None
@@ -2042,6 +2471,7 @@ class WildTagApp(tk.Tk):
                 break
         if not dep_file:
             return True  # already warned about missing file
+
 
         try:
             if dep_file.suffix.lower() == ".xlsx":
@@ -2062,6 +2492,7 @@ class WildTagApp(tk.Tk):
         except Exception:
             return True
 
+
         # Find locationName column (case-insensitive)
         loc_col = None
         if rows:
@@ -2072,6 +2503,7 @@ class WildTagApp(tk.Tk):
                     loc_col = col
                     break
 
+
         if not loc_col:
             messagebox.showwarning(
                 "Deployment file check",
@@ -2079,13 +2511,17 @@ class WildTagApp(tk.Tk):
                 "Please ensure one column is named 'locationName'.")
             return False
 
+
         dep_sites = {r[loc_col].strip() for r in rows if r.get(loc_col,"").strip()}
+
 
         missing_in_dep    = site_folders - dep_sites   # folders with no deployment row
         missing_in_images = dep_sites - site_folders   # deployment rows with no folder
 
+
         if not missing_in_dep and not missing_in_images:
             return True  # all good
+
 
         msg_parts = []
         if missing_in_dep:
@@ -2097,6 +2533,7 @@ class WildTagApp(tk.Tk):
                 f"Deployment rows with no matching image folder:\n"
                 + "\n".join(f"  - {s}" for s in sorted(missing_in_images)))
 
+
         messagebox.showwarning(
             "Site mismatch",
             "The following sites do not match between your images folder "
@@ -2104,17 +2541,9 @@ class WildTagApp(tk.Tk):
             + "\n\n".join(msg_parts))
         return False
 
-    def _scrollable(self, parent):
-        """Return a scrollable inner frame with smooth momentum scrolling.
 
-        The mouse-wheel binding is installed once, globally and permanently
-        (see _install_global_wheel), rather than on <Enter>/<Leave>. Enter/leave
-        bindings break two-finger scrolling because moving the pointer onto any
-        child widget fires <Leave> on the container and unbinds the wheel,
-        creating dead zones over all populated content. The global handler
-        instead finds whichever scrollable canvas sits under the pointer and
-        scrolls that one, so scrolling works everywhere in the pane.
-        """
+    def _scrollable(self, parent):
+        """Return a scrollable inner frame with smooth momentum scrolling."""
         canvas = tk.Canvas(parent, bg=C["frost"], highlightthickness=0)
         sb     = tk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=sb.set)
@@ -2123,13 +2552,16 @@ class WildTagApp(tk.Tk):
         inner = tk.Frame(canvas, bg=C["frost"])
         win   = canvas.create_window((0,0), window=inner, anchor="nw")
 
+
         def _cfg(e): canvas.configure(scrollregion=canvas.bbox("all"))
         def _rsz(e): canvas.itemconfig(win, width=e.width)
         inner.bind("<Configure>", _cfg)
         canvas.bind("<Configure>", _rsz)
 
+
         # Smooth momentum scroll using fraction-based movement
         _state = {"vel": 0.0, "job": None}
+
 
         def _momentum():
             if abs(_state["vel"]) < 0.1:
@@ -2145,43 +2577,42 @@ class WildTagApp(tk.Tk):
             _state["vel"] *= 0.85
             _state["job"]  = canvas.after(16, _momentum)
 
+
         def _scroll(delta_units):
             if _state["job"]:
                 canvas.after_cancel(_state["job"])
             _state["vel"] = delta_units * 20
             _momentum()
 
-        # Register this canvas so the global wheel handler can route to it.
+
+        # Register this canvas so the app-wide wheel handler can route to it.
+        # A single persistent binding (see _install_global_wheel) avoids the
+        # dead zones caused by <Enter>/<Leave> unbinding when the pointer moves
+        # onto child widgets.
         if not hasattr(self, "_wheel_targets"):
             self._wheel_targets = []
         self._wheel_targets.append((canvas, _scroll))
         self._install_global_wheel()
 
+
         return inner
+
 
     def _install_global_wheel(self):
         """Install a single, persistent mouse-wheel binding for the whole app.
-
-        On each wheel event it walks up from the widget under the pointer to
-        find the enclosing scrollable canvas (one registered in
-        _wheel_targets) and scrolls that. Installed once; subsequent calls are
-        no-ops. This is what makes two-finger scrolling work over every widget,
-        including labels, buttons, and nested frames, with no dead zones.
-        """
+        On each event it finds the scrollable canvas under the pointer (one
+        registered in _wheel_targets) and scrolls that. Installed once."""
         if getattr(self, "_wheel_installed", False):
             return
         self._wheel_installed = True
 
         def _target_for(widget):
-            # climb the widget tree until we hit a registered canvas
             w = widget
             while w is not None:
                 for canvas, scroll in getattr(self, "_wheel_targets", []):
                     if w is canvas:
                         return scroll
                 w = getattr(w, "master", None)
-            # fall back to the last registered canvas if the pointer isn't over
-            # a specific one (e.g. over the scrollbar or padding)
             tgts = getattr(self, "_wheel_targets", [])
             return tgts[-1][1] if tgts else None
 
@@ -2201,6 +2632,7 @@ class WildTagApp(tk.Tk):
         self.bind_all("<Button-4>",   _on_wheel, add="+")
         self.bind_all("<Button-5>",   _on_wheel, add="+")
 
+
     def _log(self, message, tag="plain"):
         def _a():
             self._log_box.configure(state="normal")
@@ -2209,13 +2641,16 @@ class WildTagApp(tk.Tk):
             self._log_box.configure(state="disabled")
         self.after(0, _a)
 
+
     def _set_status(self, text, colour=None):
         self._status_var.set(text)
         self._status_lbl.config(fg=colour or C["canopy"])
 
+
     def _start_progress(self):
         self._prog_running = True; self._prog_pos = 0
         self._tick_progress()
+
 
     def _tick_progress(self):
         if not self._prog_running: return
@@ -2228,11 +2663,14 @@ class WildTagApp(tk.Tk):
         self._prog_pos = (self._prog_pos + 10) % w
         self.after(30, self._tick_progress)
 
+
     def _stop_progress(self):
         self._prog_running = False
         self._prog_canvas.coords(self._prog_bar, 0, 0, 0, 4)
 
+
     # ── MAIN UI ───────────────────────────────────────────────────────────────
+
 
     def _build_ui(self):
         # Header
@@ -2240,14 +2678,17 @@ class WildTagApp(tk.Tk):
         hdr.pack(fill="x")
         tk.Frame(hdr, bg=C["border"], height=1).pack(fill="x", side="bottom")
 
+
         lf = tk.Frame(hdr, bg=C["white"])
         lf.pack(side="left", padx=20)
+
 
         icon_c = tk.Canvas(lf, width=40, height=30,
                            bg=C["white"], highlightthickness=0)
         icon_c.pack(side="left", padx=(0,8))
         icon_c.create_rectangle(1,  4, 22, 26, outline=C["mist"],   width=2)
         icon_c.create_rectangle(18, 4, 39, 26, outline=C["forest"], width=2.5)
+
 
         wm = tk.Canvas(lf, bg=C["white"], highlightthickness=0, height=32, width=220)
         wm.pack(side="left")
@@ -2262,6 +2703,7 @@ class WildTagApp(tk.Tk):
         wm.update_idletasks()
         wm.configure(width=(wm.bbox("all")[2] or 160) + 4)
 
+
         self._status_var = tk.StringVar(value="Ready to run")
         self._status_lbl = tk.Label(hdr, textvariable=self._status_var,
                                     font=self._fonts["small"],
@@ -2269,9 +2711,11 @@ class WildTagApp(tk.Tk):
                                     padx=12, pady=4)
         self._status_lbl.pack(side="right", padx=20)
 
+
         # Body
         body = tk.Frame(self, bg=C["frost"])
         body.pack(fill="both", expand=True)
+
 
         # Sidebar
         self._sidebar = tk.Frame(body, bg=C["white"], width=190)
@@ -2280,9 +2724,11 @@ class WildTagApp(tk.Tk):
         tk.Frame(self._sidebar, bg=C["border"], width=1).pack(side="right", fill="y")
         self._build_sidebar(self._sidebar)
 
+
         # Pane container
         self._pane_area = tk.Frame(body, bg=C["frost"])
         self._pane_area.pack(side="left", fill="both", expand=True)
+
 
         # Build all panes (only one shown at a time)
         self._panes = {}
@@ -2295,14 +2741,18 @@ class WildTagApp(tk.Tk):
         self._build_pane_validate()
         self._build_pane_summary()
 
+
     # ── SIDEBAR ───────────────────────────────────────────────────────────────
+
 
     def _build_sidebar(self, parent):
         tk.Frame(parent, bg=C["white"], height=12).pack()
         self._nav_btns = {}
 
+
         # Detect validate-only mode (no wildtag_env present)
         validate_only = not (Path(__file__).parent / "wildtag_env").exists()
+
 
         items = [
             ("models",     "Models",       not validate_only),
@@ -2326,13 +2776,16 @@ class WildTagApp(tk.Tk):
             f.bind("<Button-1>",   lambda e, k=key: self._show_pane(k))
             self._nav_btns[key] = (f, bar, btn)
 
+
         # In validate-only mode show a small notice
         if validate_only:
             tk.Label(parent, text="Validation mode",
                      font=self._fonts["small"], bg=C["white"],
                      fg=C["text_muted"]).pack(padx=16, pady=(4,0), anchor="w")
 
+
         tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", padx=16, pady=8)
+
 
         # Help / guides — open the bundled documents with the system viewer
         tk.Label(parent, text="HELP", font=self._fonts["small"],
@@ -2350,7 +2803,9 @@ class WildTagApp(tk.Tk):
                       relief="flat", padx=16, pady=3, anchor="w",
                       activebackground=C["frost"], cursor="hand2").pack(fill="x")
 
+
         tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", padx=16, pady=8)
+
 
         # Theme toggle
         def _toggle_theme():
@@ -2370,6 +2825,7 @@ class WildTagApp(tk.Tk):
             subprocess.Popen([sys.executable] + sys.argv, creationflags=_NO_WINDOW)
             self.destroy()
 
+
         theme_icon = "🌙" if self._settings.get("theme","light") == "light" else "☀"
         theme_lbl  = f"{theme_icon}  Dark mode" if self._settings.get("theme","light") == "light" else f"{theme_icon}  Light mode"
         tk.Button(parent, text=theme_lbl,
@@ -2381,10 +2837,12 @@ class WildTagApp(tk.Tk):
                   cursor="hand2",
                   anchor="w").pack(fill="x", pady=(0,4))
 
+
         tk.Frame(parent, bg=C["border"], height=1).pack(fill="x", padx=16, pady=(0,8))
         tk.Label(parent, text="wildtag.ai  v1.4",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["mist"], padx=16).pack(anchor="w")
+
 
     def _open_doc(self, basename):
         """Open a bundled help document (PDF preferred, HTML fallback) with the
@@ -2407,6 +2865,7 @@ class WildTagApp(tk.Tk):
             f"{basename} was not found in the wildtag folder.\n\n"
             "The guides are installed alongside wildtag; if this is a "
             "volunteer copy, the guide may not be included.")
+
 
     def _show_pane(self, key):
         # Guard against a stale/removed pane key (e.g. "map" saved by an
@@ -2466,13 +2925,16 @@ class WildTagApp(tk.Tk):
                         pass
                     self.after(100, self._val_populate_species)
 
+
     # ── PANE: SETUP ───────────────────────────────────────────────────────────
+
 
     def _build_pane_setup(self):
         pane = tk.Frame(self._pane_area, bg=C["frost"])
         self._panes["setup"] = pane
         inner = self._scrollable(pane)
         pad   = dict(padx=24, pady=6)
+
 
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         tk.Label(inner, text="Setup", font=self._fonts["h2"],
@@ -2483,6 +2945,7 @@ class WildTagApp(tk.Tk):
             "wildtag will remember this each time it opens.",
             bg=C["frost"]).pack(fill="x", padx=24)
         tk.Frame(inner, bg=C["frost"], height=12).pack()
+
 
         # Project folder
         self._section_label(inner, "Project folder").pack(
@@ -2496,6 +2959,7 @@ class WildTagApp(tk.Tk):
         self._browse_entry(c, self._project_var, mode="dir",
                            title="Select project folder").pack(fill="x")
 
+
         # Save button
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         tk.Button(inner, text="Save settings",
@@ -2506,6 +2970,7 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=20, pady=8, cursor="hand2").pack(
                       anchor="e", padx=24, pady=(4,20))
 
+
     def _save_setup(self):
         s = self._settings
         s["project"]   = self._project_var.get()
@@ -2513,7 +2978,9 @@ class WildTagApp(tk.Tk):
         save_settings(s)
         self._set_status("Settings saved", C["forest"])
 
+
     # ── PANE: MODELS ──────────────────────────────────────────────────────────
+
 
     def _build_pane_models(self):
         pane = tk.Frame(self._pane_area, bg=C["frost"])
@@ -2523,12 +2990,14 @@ class WildTagApp(tk.Tk):
         self._models_downloading = set()
         self._models_render()
 
+
     def _models_render(self):
         """(Re)draw the model list with current install status."""
         inner = self._models_inner
         for w in inner.winfo_children():
             w.destroy()
         self._models_status_lbls = {}
+
 
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         tk.Label(inner, text="Models", font=self._fonts["h2"],
@@ -2540,6 +3009,7 @@ class WildTagApp(tk.Tk):
             bg=C["frost"]).pack(fill="x", padx=24)
         tk.Frame(inner, bg=C["frost"], height=10).pack()
 
+
         try:
             from wt_models.registry import classifiers
             models = classifiers()
@@ -2548,11 +3018,13 @@ class WildTagApp(tk.Tk):
                              bg=C["frost"]).pack(fill="x", padx=24)
             return
 
+
         try:
             from wt_models.downloader import (is_ready, cache_bundle_present,
                                               model_dir)
         except Exception:
             is_ready = cache_bundle_present = model_dir = None
+
 
         for m in models:
             if m.get("available", True) is False:
@@ -2562,25 +3034,30 @@ class WildTagApp(tk.Tk):
                                         model_dir)
             self._models_card(inner, m, state)
 
+
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         self._wrap_label(inner,
             "Models download once, then run offline. The first download needs "
             "internet; each file is checked before use.",
             bg=C["frost"]).pack(fill="x", padx=24, pady=(0,20))
 
+
     def _models_card(self, inner, m, state):
         mid = m.get("id", "")
         o, c = self._card(inner)
         o.pack(fill="x", padx=24, pady=6)
 
+
         tk.Label(c, text=m.get("name", mid), font=self._fonts["label"],
                  bg=C["white"], fg=C["canopy"], anchor="w").pack(fill="x")
+
 
         region = ", ".join(m.get("regions", [])) or ""
         arch   = m.get("architecture", "")
         meta_line = "  \u00b7  ".join(x for x in [region, arch] if x)
         if meta_line:
             self._wrap_label(c, meta_line, bg=C["white"]).pack(fill="x", pady=(2,0))
+
 
         cb   = m.get("cache_bundle") or {}
         size = fmt_model_size(cb.get("size_mb") or m.get("weights_size"))
@@ -2591,9 +3068,11 @@ class WildTagApp(tk.Tk):
         if info:
             self._wrap_label(c, info, bg=C["white"]).pack(fill="x", pady=(2,0))
 
+
         if m.get("description"):
             self._wrap_label(c, m["description"], bg=C["white"]).pack(
                 fill="x", pady=(4,4))
+
 
         row = tk.Frame(c, bg=C["white"]); row.pack(fill="x", pady=(4,0))
         if state == "planned":
@@ -2619,10 +3098,12 @@ class WildTagApp(tk.Tk):
                       activebackground=C["leaf"], activeforeground=C["white"],
                       relief="flat", padx=14, pady=4, cursor="hand2").pack(side="right")
 
+
         lbl = tk.Label(c, text="", font=self._fonts["small"], bg=C["white"],
                        fg=C["text_muted"], anchor="w")
         lbl.pack(fill="x", pady=(4,0))
         self._models_status_lbls[mid] = lbl
+
 
     def _models_download(self, m):
         mid  = m.get("id", "")
@@ -2638,18 +3119,22 @@ class WildTagApp(tk.Tk):
             "wildtag uses it offline."):
             return
 
+
         self._models_downloading.add(mid)
+
 
         def _log(msg, *a):
             if lbl:
                 self.after(0, lambda: lbl.config(text=str(msg)[:120],
                                                  fg=C["text_muted"]))
 
+
         def _prog(done, total):
             if lbl and total:
                 pct = int(done * 100 / max(1, total))
                 self.after(0, lambda: lbl.config(text=f"Downloading... {pct}%",
                                                  fg=C["text_muted"]))
+
 
         def _work():
             try:
@@ -2664,7 +3149,9 @@ class WildTagApp(tk.Tk):
             finally:
                 self._models_downloading.discard(mid)
 
+
         threading.Thread(target=_work, daemon=True).start()
+
 
     def _models_remove(self, m):
         import shutil
@@ -2683,11 +3170,13 @@ class WildTagApp(tk.Tk):
             self._set_status(f"Could not remove: {e}", C["error"])
         self._models_render()
 
+
     def _build_pane_run(self):
         pane  = tk.Frame(self._pane_area, bg=C["frost"])
         self._panes["run"] = pane
         inner = self._scrollable(pane)
         pad   = dict(padx=24, pady=6)
+
 
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         tk.Label(inner, text="Run wildtag", font=self._fonts["h2"],
@@ -2702,9 +3191,11 @@ class WildTagApp(tk.Tk):
             bg=C["frost"]).pack(fill="x", padx=24)
         tk.Frame(inner, bg=C["frost"], height=12).pack()
 
+
         # ── Image folder + models ─────────────────────────────────────────────
         o_main, c_main = self._card(inner)
         o_main.pack(fill="x", **pad)
+
 
         self._section_label(c_main,
             "Step 1 - Select your project folder").pack(
@@ -2714,10 +3205,12 @@ class WildTagApp(tk.Tk):
             "wildtag will scan all sub-folders for images.",
             bg=C["white"]).pack(fill="x", pady=(0,8))
 
+
         self._img_folder_var = tk.StringVar()
         self._browse_entry(c_main, self._img_folder_var,
                            mode="dir",
                            title="Select project folder").pack(fill="x")
+
 
         # When a project folder is chosen, and it's an already-processed
         # project (has results_with_ids.csv), start linking immediately so
@@ -2734,7 +3227,9 @@ class WildTagApp(tk.Tk):
             self._project_link_job = self.after(400, self._prelink_project)
         self._img_folder_var.trace_add("write", _on_project_pick)
 
+
         tk.Frame(c_main, bg=C["white"], height=12).pack()
+
 
         self._section_label(c_main,
             "Step 2 - Choose models").pack(fill="x", pady=(0,4))
@@ -2742,6 +3237,7 @@ class WildTagApp(tk.Tk):
             "Models are downloaded automatically the first time they are used. "
             "This requires an internet connection and may take several minutes.",
             bg=C["white"]).pack(fill="x", pady=(0,10))
+
 
         # Classifier dropdown only — each model brings its own detector.
         # Planned models (available: False) show on the Models screen but are
@@ -2752,6 +3248,7 @@ class WildTagApp(tk.Tk):
                           if m.get("available", True) is not False]
         except ImportError:
             cls_models = []
+
 
         tk.Label(c_main,
                  text="Species identification model",
@@ -2770,9 +3267,11 @@ class WildTagApp(tk.Tk):
                               bg=C["white"], fg=C["canopy"])
         om_cls.pack(anchor="w", pady=(2,10))
 
+
         # Confidence thresholds
         thresh_row = tk.Frame(c_main, bg=C["white"])
         thresh_row.pack(fill="x", pady=(0,4))
+
 
         for lbl, var_name, default in [
             ("Detection threshold (0.1 recommended)", "_det_conf_var", 0.1),
@@ -2790,6 +3289,7 @@ class WildTagApp(tk.Tk):
                        fg=C["canopy"], relief="flat", bd=2).pack(
                            anchor="w", pady=(2,0))
 
+
         # Geofence
         geo_row = tk.Frame(c_main, bg=C["white"])
         geo_row.pack(fill="x", pady=(8, 4))
@@ -2799,6 +3299,7 @@ class WildTagApp(tk.Tk):
         self._geofence_var = tk.StringVar(value="")        # holds the CODE
         self._geo_display_var = tk.StringVar(value="")     # holds shown text
         self._geo_options = [("None - no filter", "")]
+
 
         om_geo = tk.OptionMenu(geo_row, self._geo_display_var, "None - no filter")
         om_geo.config(font=self._fonts["label"], bg=C["frost"],
@@ -2810,6 +3311,7 @@ class WildTagApp(tk.Tk):
         self._om_geo = om_geo
         om_geo.pack(anchor="w", pady=(2, 0))
 
+
         # Display selection -> code
         def _geo_selected(*_):
             disp = self._geo_display_var.get()
@@ -2819,6 +3321,7 @@ class WildTagApp(tk.Tk):
                     return
             self._geofence_var.set("")
         self._geo_display_var.trace_add("write", _geo_selected)
+
 
         # Rebuild the geofence choices for whichever model is selected. Only
         # models with a meaningful region filter offer a code; region-scoped
@@ -2849,6 +3352,7 @@ class WildTagApp(tk.Tk):
                     command=lambda d=display: self._geo_display_var.set(d))
             self._geo_display_var.set(opts[0][0])   # also sets the code via trace
 
+
         self._rebuild_geo = _rebuild_geo
         self._cls_model_var.trace_add("write", lambda *a: self._rebuild_geo())
         _rebuild_geo()   # initial populate for the default model
@@ -2857,10 +3361,12 @@ class WildTagApp(tk.Tk):
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"]).pack(anchor="w", pady=(4, 0))
 
+
         # ── Performance options ───────────────────────────────────────────────
         self._section_label(inner,
             "Performance").pack(fill="x", padx=24, pady=(16,4))
         o_perf, c_perf = self._card(inner); o_perf.pack(fill="x", **pad)
+
 
         import os
         n_cpus = os.cpu_count() or 4
@@ -2870,8 +3376,10 @@ class WildTagApp(tk.Tk):
         except ImportError:
             has_cuda = False
 
+
         perf_row = tk.Frame(c_perf, bg=C["white"])
         perf_row.pack(fill="x", pady=(4, 8))
+
 
         # Device selector
         dev_col = tk.Frame(perf_row, bg=C["white"])
@@ -2899,6 +3407,7 @@ class WildTagApp(tk.Tk):
                      font=self._fonts["small"], bg=C["white"],
                      fg=C["text_muted"]).pack(anchor="w")
 
+
         # Thread count
         thr_col = tk.Frame(perf_row, bg=C["white"])
         thr_col.pack(side="left", padx=(0, 32))
@@ -2912,22 +3421,27 @@ class WildTagApp(tk.Tk):
                    bg=C["frost"], fg=C["canopy"],
                    relief="flat", bd=2).pack(anchor="w", pady=(2, 0))
 
+
         tk.Label(c_perf,
                  text="  Tip: leave 1 CPU thread free for the rest of your computer.",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"]).pack(anchor="w", pady=(0, 6))
+
 
         # ── Output options ────────────────────────────────────────────────────
         self._section_label(inner,
             "Output options").pack(fill="x", padx=24, pady=(16,4))
         o3, c3 = self._card(inner); o3.pack(fill="x", **pad)
 
+
         opts = tk.Frame(c3, bg=C["white"])
         opts.pack(fill="x", pady=(0,12))
+
 
         tk.Label(opts, text="Validation image quality",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"]).pack(anchor="w", pady=(0,4))
+
 
         self._quality_var = tk.StringVar(value="medium")
         qual_row = tk.Frame(opts, bg=C["white"])
@@ -2946,15 +3460,42 @@ class WildTagApp(tk.Tk):
                                 relief="flat", cursor="hand2")
             rb.pack(side="left", padx=(0,16))
 
+
         # Map quality labels to JPEG values
         self._QUALITY_MAP = {"low": 40, "medium": 65, "high": 85}
         self._quality_var.trace_add(
             "write", lambda *_: self._persist_setting(
                 "quality", self._quality_var))
 
+
+        # Show confidence score on the drawn bounding boxes
+        self._show_conf = tk.BooleanVar(value=True)
+        conf_row = tk.Frame(opts, bg=C["white"])
+        conf_row.pack(anchor="w", pady=(12,0))
+        tk.Checkbutton(conf_row,
+                       text="Show confidence score on bounding boxes",
+                       variable=self._show_conf,
+                       font=self._fonts["label"],
+                       bg=C["white"], fg=C["canopy"],
+                       activebackground=C["white"],
+                       selectcolor=C["white"],
+                       relief="flat", cursor="hand2").pack(anchor="w")
+        tk.Label(opts,
+                 text="  When ticked, each box is labelled with the species and its "
+                      "confidence score, for example \"fox  0.94\". Untick to label "
+                      "the box with the species name only.",
+                 font=self._fonts["small"], bg=C["white"],
+                 fg=C["text_muted"], anchor="w",
+                 wraplength=560, justify="left").pack(anchor="w", pady=(2,0))
+        self._show_conf.trace_add(
+            "write", lambda *_: self._persist_setting(
+                "show_conf", self._show_conf))
+
+
         tk.Label(opts, text="Checkpoint frequency",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"]).pack(anchor="w", pady=(12,4))
+
 
         self._checkpoint_var = tk.StringVar(value="balanced")
         cp_row = tk.Frame(opts, bg=C["white"])
@@ -2973,6 +3514,7 @@ class WildTagApp(tk.Tk):
                                 relief="flat", cursor="hand2")
             rb.pack(side="left", padx=(0,16))
 
+
         tk.Label(opts,
                  text="  How often progress is saved to disk. More frequent "
                       "checkpoints lose less work if wildtag is stopped or "
@@ -2982,12 +3524,14 @@ class WildTagApp(tk.Tk):
                  fg=C["text_muted"], anchor="w",
                  wraplength=560, justify="left").pack(anchor="w", pady=(2,0))
 
+
         # Map checkpoint frequency labels to "save every N images"
         self._CHECKPOINT_MAP = {
             "frequent": 50, "balanced": 200, "infrequent": 1000}
         self._checkpoint_var.trace_add(
             "write", lambda *_: self._persist_setting(
                 "checkpoint", self._checkpoint_var))
+
 
         self._do_validation = tk.BooleanVar(value=True)
         chk = tk.Frame(c3, bg=C["frost"], padx=10, pady=8)
@@ -3008,10 +3552,35 @@ class WildTagApp(tk.Tk):
                  bg=C["frost"], fg=C["text_muted"],
                  anchor="w").pack(anchor="w")
 
+
+        # Redraw existing images with the current annotation options, without
+        # re-running detection. Lets the user change their mind about the
+        # confidence label or image quality after a run.
+        redraw_wrap = tk.Frame(c3, bg=C["white"])
+        redraw_wrap.pack(fill="x", pady=(10,0))
+        self._redraw_btn = tk.Button(
+            redraw_wrap, text="Redraw validation images",
+            command=self._redraw_validation,
+            font=self._fonts["label"],
+            bg=C["border"], fg=C["canopy"],
+            activebackground=C["mist"], activeforeground=C["canopy"],
+            relief="flat", padx=12, pady=6, cursor="hand2")
+        self._redraw_btn.pack(anchor="w")
+        tk.Label(redraw_wrap,
+                 text="Re-renders the existing validation images for this project "
+                      "using the image quality and confidence-score settings above. "
+                      "It does not re-run detection and keeps all your validation "
+                      "progress, so use it to change how the boxes are drawn after a run.",
+                 font=self._fonts["small"], bg=C["white"],
+                 fg=C["text_muted"], anchor="w",
+                 wraplength=560, justify="left").pack(anchor="w", pady=(4,0))
+
+
         # ── Run / Stop buttons ───────────────────────────────────────────────
         tk.Frame(inner, bg=C["frost"], height=4).pack()
         run_row = tk.Frame(inner, bg=C["frost"])
         run_row.pack(fill="x", padx=24, pady=(0,8))
+
 
         self._run_btn = tk.Button(
             run_row, text="Run wildtag",
@@ -3021,6 +3590,7 @@ class WildTagApp(tk.Tk):
             activebackground=C["leaf"], activeforeground=C["white"],
             relief="flat", padx=20, pady=12, cursor="hand2")
         self._run_btn.pack(side="left", fill="x", expand=True)
+
 
         self._stop_btn = tk.Button(
             run_row, text="Stop",
@@ -3032,6 +3602,7 @@ class WildTagApp(tk.Tk):
             state="disabled")
         self._stop_btn.pack(side="left", padx=(8,0))
 
+
         self._prog_canvas  = tk.Canvas(inner, bg=C["mist"], height=4,
                                        highlightthickness=0)
         self._prog_canvas.pack(fill="x", padx=24)
@@ -3039,6 +3610,7 @@ class WildTagApp(tk.Tk):
             0, 0, 0, 4, fill=C["forest"], width=0)
         self._prog_running = False
         self._prog_pos     = 0
+
 
         # Log
         self._section_label(inner,
@@ -3057,13 +3629,18 @@ class WildTagApp(tk.Tk):
             self._log_box.tag_config(tag, foreground=col)
 
 
+
+
     # ── PANE: VALIDATE ────────────────────────────────────────────────────────
 
+
     BATCH_SIZE = 30
+
 
     def _build_pane_validate(self):
         pane = tk.Frame(self._pane_area, bg=C["frost"])
         self._panes["validate"] = pane
+
 
         # State
         self._val_folder       = None   # Path to validation/ folder
@@ -3079,13 +3656,16 @@ class WildTagApp(tk.Tk):
         self._val_img_refs     = []     # keep PhotoImage refs alive
         self._val_all_labels   = []     # valid species list
 
+
         # ── Top controls (fixed, not scrollable) ──────────────────────────
         top = tk.Frame(pane, bg=C["white"])
         top.pack(fill="x")
         tk.Frame(top, bg=C["border"], height=1).pack(fill="x", side="bottom")
 
+
         ctrl = tk.Frame(top, bg=C["white"], pady=10)
         ctrl.pack(fill="x", padx=20)
+
 
         # Status label showing which project/folder is loaded
         self._val_folder_var = tk.StringVar()
@@ -3093,6 +3673,7 @@ class WildTagApp(tk.Tk):
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"])
         self._val_status_lbl.grid(row=0, column=0, sticky="w", padx=(0,20))
+
 
         # Species dropdown
         tk.Label(ctrl, text="Species",
@@ -3110,6 +3691,18 @@ class WildTagApp(tk.Tk):
         self._val_species_var.trace_add("write",
             lambda *_: self._val_load_species())
 
+
+        # Open folder. Essential for the standalone validator, where the
+        # images are in a folder the volunteer unzipped, not next to the app.
+        self._val_browse_btn = tk.Button(
+            ctrl, text="Open folder",
+            command=self._val_pick_folder,
+            font=self._fonts["small"], bg=C["border"],
+            fg=C["canopy"], relief="flat", padx=10, pady=2,
+            cursor="hand2")
+        self._val_browse_btn.grid(row=0, column=3, sticky="w", padx=(12,0))
+
+
         # Column count
         tk.Label(ctrl, text="Columns",
                  font=self._fonts["small"], bg=C["white"],
@@ -3123,9 +3716,11 @@ class WildTagApp(tk.Tk):
                            command=self._val_refresh_gallery).grid(
                                row=0, column=6+i, padx=2)
 
+
         # Batch nav bar
         nav = tk.Frame(top, bg=C["frost"], pady=6)
         nav.pack(fill="x", padx=20)
+
 
         self._val_prev_btn = tk.Button(
             nav, text="< Previous batch",
@@ -3135,10 +3730,12 @@ class WildTagApp(tk.Tk):
             cursor="hand2")
         self._val_prev_btn.pack(side="left")
 
+
         self._val_batch_lbl = tk.Label(
             nav, text="", font=self._fonts["small"],
             bg=C["frost"], fg=C["text_muted"])
         self._val_batch_lbl.pack(side="left", padx=16)
+
 
         self._val_next_btn = tk.Button(
             nav, text="Next batch >",
@@ -3148,13 +3745,6 @@ class WildTagApp(tk.Tk):
             cursor="hand2")
         self._val_next_btn.pack(side="left")
 
-        self._val_repair_btn = tk.Button(
-            nav, text="Repair folders",
-            command=self._val_repair_manifests,
-            font=self._fonts["small"], bg=C["border"],
-            fg=C["canopy"], relief="flat", padx=10, pady=4,
-            cursor="hand2")
-        self._val_repair_btn.pack(side="left", padx=(20,0))
 
         self._val_complete_btn = tk.Button(
             nav, text="Mark batch complete",
@@ -3165,14 +3755,17 @@ class WildTagApp(tk.Tk):
             relief="flat", padx=14, pady=4, cursor="hand2")
         self._val_complete_btn.pack(side="right")
 
+
         self._val_progress_lbl = tk.Label(
             nav, text="", font=self._fonts["small"],
             bg=C["frost"], fg=C["text_muted"])
         self._val_progress_lbl.pack(side="right", padx=16)
 
+
         # ── Scrollable gallery with smooth scroll ────────────────────────
         gallery_outer = tk.Frame(pane, bg=C["frost"])
         gallery_outer.pack(fill="both", expand=True)
+
 
         self._val_canvas = tk.Canvas(
             gallery_outer, bg=C["frost"], highlightthickness=0)
@@ -3183,10 +3776,12 @@ class WildTagApp(tk.Tk):
         val_sb.pack(side="right", fill="y")
         self._val_canvas.pack(side="left", fill="both", expand=True)
 
+
         self._val_gallery_inner = tk.Frame(
             self._val_canvas, bg=C["frost"])
         self._val_canvas_win = self._val_canvas.create_window(
             (0,0), window=self._val_gallery_inner, anchor="nw")
+
 
         def _val_cfg(e):
             self._val_canvas.configure(
@@ -3197,13 +3792,13 @@ class WildTagApp(tk.Tk):
         self._val_gallery_inner.bind("<Configure>", _val_cfg)
         self._val_canvas.bind("<Configure>", _val_rsz)
 
+
         # Wheel / trackpad scrolling. Move by a fraction of the content
         # height per event so a notch travels a meaningful, consistent
         # distance (canvas "units" are only a few px and felt like the
         # gallery barely moved). Trackpads send many small deltas, so we
         # scale by delta magnitude and it stays smooth.
         def _val_scroll_by(units):
-            # units: negative = up, positive = down (one notch ~= 1.0)
             try:
                 bbox = self._val_canvas.bbox("all")
                 view_h = self._val_canvas.winfo_height()
@@ -3214,22 +3809,23 @@ class WildTagApp(tk.Tk):
             content_h = bbox[3] - bbox[1]
             if content_h <= view_h:
                 return  # nothing to scroll
-            step_px = units * 80
-            frac = step_px / content_h
+            frac = (units * 80) / content_h
             cur = self._val_canvas.yview()[0]
             self._val_canvas.yview_moveto(max(0.0, min(1.0, cur + frac)))
             if hasattr(self, "_val_decode_visible"):
                 self.after_idle(self._val_decode_visible)
 
+
         # Register the gallery canvas with the app-wide wheel handler so
-        # two-finger scrolling works over the image tiles (no dead zones from
-        # enter/leave unbinding). Uses the same global mechanism as _scrollable.
+        # two-finger scrolling works over the image tiles (no dead zones).
         if not hasattr(self, "_wheel_targets"):
             self._wheel_targets = []
         self._wheel_targets.append((self._val_canvas, _val_scroll_by))
         self._install_global_wheel()
 
+
     # ── VALIDATE: actions ─────────────────────────────────────────────────────
+
 
     def _val_pick_folder(self):
         p = filedialog.askdirectory(title="Select validation folder")
@@ -3241,6 +3837,7 @@ class WildTagApp(tk.Tk):
         self._val_folder = picked
         self._val_folder_var.set(str(picked))
         self._val_populate_species()
+
 
     def _val_repair_manifests(self, interactive=True):
         """Trim each species validation.csv to the images actually present in
@@ -3256,6 +3853,7 @@ class WildTagApp(tk.Tk):
                     "Open a validation folder first.")
             return 0
 
+
         csvs = [c for c in sorted(set(self._val_folder.rglob("validation.csv"))
                                   | set(self._val_folder.rglob("*_validation.csv")))
                 if "validate_env" not in c.parts and not c.name.endswith(".bak")]
@@ -3265,12 +3863,14 @@ class WildTagApp(tk.Tk):
                     "No validation folders found here.")
             return 0
 
+
         if interactive and not messagebox.askyesno("Repair validation folders",
             "This removes entries for images that are not in each folder, so "
             "'Image not found' tiles disappear.\n\n"
             "Your images and any validating already done are kept, and a "
             "backup (validation.csv.bak) is saved first.\n\nContinue?"):
             return 0
+
 
         img_exts = (".jpg", ".jpeg", ".png")
         fixed = 0
@@ -3301,6 +3901,7 @@ class WildTagApp(tk.Tk):
             details.append(f"{folder.name}:  {len(rows)} -> {len(keep)} images")
             fixed += 1
 
+
         if interactive:
             # Reload the gallery so the change shows immediately.
             self._val_batch = 0
@@ -3316,6 +3917,7 @@ class WildTagApp(tk.Tk):
             messagebox.showinfo("Repair complete", msg)
         return fixed
 
+
     @staticmethod
     def _find_validation_csv(sp_dir):
         """Return the validation CSV in a species folder, or None. Prefers the
@@ -3326,6 +3928,7 @@ class WildTagApp(tk.Tk):
             return canonical
         cands = sorted(sp_dir.glob("*_validation.csv"))
         return cands[0] if cands else None
+
 
     def _val_populate_species(self):
         """Populate the species dropdown from the current validation folder."""
@@ -3360,6 +3963,7 @@ class WildTagApp(tk.Tk):
         except Exception:
             summary_species = None
 
+
         species = []
         for d in sorted(self._val_folder.iterdir()):
             if not d.is_dir():
@@ -3388,6 +3992,7 @@ class WildTagApp(tk.Tk):
             except Exception:
                 continue
 
+
         self._val_species = species
         n_pending = sum(1 for sp in species for _ in [sp])
         if hasattr(self, "_val_status_lbl"):
@@ -3401,6 +4006,7 @@ class WildTagApp(tk.Tk):
             menu.add_command(
                 label=sp.replace("_", " ").title(),
                 command=lambda s=sp: self._val_species_var.set(s))
+
 
         # Deliberately do NOT auto-select a species. Landing on the
         # Validate pane should render nothing (fast, no image decoding)
@@ -3421,23 +4027,28 @@ class WildTagApp(tk.Tk):
                      fg=C["forest"], anchor="w").pack(
                          fill="x", padx=16, pady=32)
 
+
     def _val_load_species(self):
         sp = self._val_species_var.get()
         if not sp or not self._val_folder:
             return
 
+
         csv_path = self._find_validation_csv(self._val_folder / sp)
         if not csv_path or not csv_path.exists():
             return
+
 
         self._val_load_favourites()
         self._val_csv_path   = csv_path
         self._val_corrections = {}
         self._val_selected    = set()  # multi-select: set of det_ids
 
+
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             self._val_rows = list(reader)
+
 
         # Load class list from valid_species.txt
         txt = self._val_folder / sp / "valid_species.txt"
@@ -3446,6 +4057,7 @@ class WildTagApp(tk.Tk):
             self._val_all_labels = [l.strip() for l in lines if l.strip()]
         else:
             self._val_all_labels = []
+
 
         # Merge in user-defined custom labels (subspecies, coarser groupings
         # like "unidentifiable_ungulate", local names, anything the model's
@@ -3456,6 +4068,7 @@ class WildTagApp(tk.Tk):
         for lbl in self._val_custom_labels:
             if lbl not in self._val_all_labels:
                 self._val_all_labels.append(lbl)
+
 
         # Build image_id -> list of rows lookup for sibling bbox drawing.
         # The master results_with_ids.csv covers the WHOLE project, so
@@ -3482,6 +4095,7 @@ class WildTagApp(tk.Tk):
                 self._val_sibling_bboxes = cache[2]
             elif not getattr(self, "_val_sibling_loading", False):
                 self._val_sibling_loading = True
+
 
                 def _parse_siblings():
                     lookup = {}
@@ -3515,6 +4129,7 @@ class WildTagApp(tk.Tk):
                     # camera trap data they're the large majority of rows
                     lookup = {k: v for k, v in lookup.items() if len(v) > 1}
 
+
                     def _siblings_done():
                         self._val_sibling_loading = False
                         self._val_sibling_cache = (master, master_mtime, lookup)
@@ -3523,9 +4138,12 @@ class WildTagApp(tk.Tk):
                         if lookup:
                             self._val_refresh_gallery()
 
+
                     self.after(0, _siblings_done)
 
+
                 threading.Thread(target=_parse_siblings, daemon=True).start()
+
 
         # Find first unvalidated batch
         self._val_batch = 0
@@ -3534,20 +4152,25 @@ class WildTagApp(tk.Tk):
                 self._val_batch = i // self.BATCH_SIZE
                 break
 
+
         self._val_refresh_gallery()
+
 
     def _val_refresh_gallery(self):
         if not self._val_rows:
             return
+
 
         # New gallery generation: any decode workers still in flight from
         # the previous species/batch will see the changed gen and drop
         # their results instead of drawing into the rebuilt grid.
         self._val_gallery_gen += 1
 
+
         # Only show unvalidated rows
         pending = [r for r in self._val_rows
                    if r.get("validated","").strip().lower() != "yes"]
+
 
         # Clear gallery and reset scroll
         for w in self._val_gallery_inner.winfo_children():
@@ -3556,12 +4179,14 @@ class WildTagApp(tk.Tk):
         self._val_tiles = {}
         self._val_canvas.yview_moveto(0)
 
+
         cols      = self._val_cols_var.get()
         start     = self._val_batch * self.BATCH_SIZE
         end       = min(start + self.BATCH_SIZE, len(pending))
         batch     = pending[start:end]
         n_batches = max(1, (len(pending) + self.BATCH_SIZE - 1) // self.BATCH_SIZE)
         sp        = self._val_species_var.get()
+
 
         # Progress
         n_done = len(self._val_rows) - len(pending)
@@ -3575,6 +4200,7 @@ class WildTagApp(tk.Tk):
         self._val_next_btn.config(
             state="normal" if self._val_batch < n_batches-1 else "disabled")
 
+
         # All validated
         if not pending:
             tk.Label(self._val_gallery_inner,
@@ -3583,6 +4209,7 @@ class WildTagApp(tk.Tk):
                      fg=C["forest"], anchor="w").pack(
                          fill="x", padx=16, pady=32)
             return
+
 
         # Gallery header
         sp_display = sp.replace("_"," ").title()
@@ -3604,9 +4231,11 @@ class WildTagApp(tk.Tk):
                  fg=C["forest"], anchor="w", justify="left").pack(
                      fill="x", padx=16, pady=(0,10))
 
+
         # Grid frame
         grid = tk.Frame(self._val_gallery_inner, bg=C["frost"])
         grid.pack(fill="both", padx=12, pady=4)
+
 
         # Calculate tile width. Prefer the canvas width (the actual
         # viewport), which is reliable once the pane is visible; fall back
@@ -3621,6 +4250,7 @@ class WildTagApp(tk.Tk):
             return
         avail_w = max(400, avail_w - 32)
 
+
         # Each card consumes tile_w PLUS grid padx (4 each side) and the
         # 2px border frame each side, ~16px of per-column overhead. Compute
         # the width so `cols` columns genuinely fit inside the viewport. If
@@ -3633,7 +4263,9 @@ class WildTagApp(tk.Tk):
         tile_w = (avail_w // cols) - per_col_overhead
         tile_w = max(MIN_TILE, tile_w)
 
+
         img_folder = self._val_folder / sp
+
 
         # Camera trap images all share one aspect ratio, so size the tile
         # HEIGHT to match the image rather than forcing a square, otherwise
@@ -3656,11 +4288,13 @@ class WildTagApp(tk.Tk):
             pass
         tile_h = max(90, int(tile_w * aspect))
 
+
         def _build_card(idx, row):
             """Build the tile frame and caption instantly, no image decode.
             Returns the info needed to decode the image later."""
             row_idx = idx // cols
             col_idx = idx  % cols
+
 
             det_id    = row.get("detection_id","")
             img_id    = row.get("image_id","")
@@ -3670,9 +4304,11 @@ class WildTagApp(tk.Tk):
             corrected = det_id in self._val_corrections
             selected  = det_id in self._val_selected
 
+
             # Card frame
             card = tk.Frame(grid, bg=C["white"], padx=3, pady=3)
             card.grid(row=row_idx, column=col_idx, padx=4, pady=4, sticky="n")
+
 
             # Border colour — selected overrides corrected overrides default.
             # Selected tiles get a thick, clearly visible border (a 2px one
@@ -3690,8 +4326,10 @@ class WildTagApp(tk.Tk):
                 border_col = C["border"]
                 bpad = 2
 
+
             outer = tk.Frame(card, bg=border_col, padx=bpad, pady=bpad)
             outer.pack()
+
 
             # Placeholder box, sized to the tile (image aspect ratio, not
             # square), filled in when the image decodes. Fixed size keeps
@@ -3703,6 +4341,7 @@ class WildTagApp(tk.Tk):
             ph = tk.Label(holder, text="…", font=self._fonts["small"],
                           bg="#ECECEC", fg="#BBBBBB")
             ph.place(relx=0.5, rely=0.5, anchor="center")
+
 
             # Confidence / correction caption
             try:
@@ -3717,17 +4356,20 @@ class WildTagApp(tk.Tk):
             else:
                 info_text, info_fg = conf_pct, C["text_muted"]
 
+
             info_lbl = tk.Label(card, text=info_text,
                      font=self._fonts["tile"],
                      bg=C["white"], fg=info_fg,
                      anchor="center")
             info_lbl.pack(fill="x", pady=(4, 2))
 
+
             self._val_tiles[det_id] = {"outer": outer, "info": info_lbl,
                                        "row": row, "holder": holder}
             return {"holder": holder, "ph": ph, "outer": outer, "card": card,
                     "row": row, "det_id": det_id, "img_id": img_id,
                     "img_name": img_name, "decoded": False}
+
 
         def _decode_pil(t):
             """Heavy part: read the file and produce a finished PIL image.
@@ -3739,6 +4381,7 @@ class WildTagApp(tk.Tk):
             img_name = t["img_name"]
             img_path = img_folder / img_name
             siblings = self._val_sibling_bboxes.get(img_id, [])
+
 
             img = PilImg.open(img_path)
             orig_w, orig_h = img.size
@@ -3763,6 +4406,7 @@ class WildTagApp(tk.Tk):
                     draw.rectangle([x0,y0,x1,y1], outline="#FFC107", width=2)
             return img
 
+
         def _place_decoded(t, pil_img):
             """Light part: runs on the Tk main thread. Turns the finished
             PIL image into a PhotoImage and places it in the tile."""
@@ -3781,11 +4425,13 @@ class WildTagApp(tk.Tk):
             except tk.TclError:
                 return
 
+
             if not hasattr(self, "_val_thumb_cache"):
                 self._val_thumb_cache = OrderedDict()
             cache    = self._val_thumb_cache
             siblings = self._val_sibling_bboxes.get(img_id, [])
             ckey     = (img_name, det_id, tile_w, len(siblings))
+
 
             photo = cache.get(ckey)
             if photo is None:
@@ -3808,7 +4454,9 @@ class WildTagApp(tk.Tk):
             else:
                 cache.move_to_end(ckey)
 
+
             self._val_img_refs.append(photo)
+
 
             try:
                 t["ph"].destroy()
@@ -3822,6 +4470,7 @@ class WildTagApp(tk.Tk):
                                cursor="hand2", bd=0)
             lbl_img.place(relx=0.5, rely=0.5, anchor="center")
 
+
             exp = tk.Label(holder, text="⛶", font=("Segoe UI", 10),
                            bg="#1A1A1A", fg="#FFFFFF",
                            cursor="hand2", padx=4, pady=1)
@@ -3829,6 +4478,7 @@ class WildTagApp(tk.Tk):
             exp.bind("<Button-1>",
                 lambda e, p=img_path, i=img_id, d=det_id:
                     self._val_expand_image(p, i, d))
+
 
             is_fav = det_id in self._val_favourites
             heart = tk.Label(holder, text=("♥" if is_fav else "♡"),
@@ -3842,11 +4492,13 @@ class WildTagApp(tk.Tk):
             if det_id in self._val_tiles:
                 self._val_tiles[det_id]["heart"] = heart
 
+
             lbl_img.bind("<Button-1>",
                 lambda e, r=row, c=card, o=outer, d=det_id:
                     self._val_click_image(r, c, o, d))
             lbl_img.bind("<Control-Button-1>",
                 lambda e, d=det_id: self._val_toggle_select(d))
+
 
         def _decode_tile(t):
             """Queue one tile for threaded decode. The slow file read + PIL
@@ -3861,6 +4513,7 @@ class WildTagApp(tk.Tk):
             except tk.TclError:
                 return
 
+
             # Cache hit: place immediately on the main thread, no worker
             from collections import OrderedDict
             if not hasattr(self, "_val_thumb_cache"):
@@ -3872,8 +4525,10 @@ class WildTagApp(tk.Tk):
                 _place_decoded(t, None)
                 return
 
+
             t["decoding"] = True
             gen = self._val_gallery_gen
+
 
             def _worker():
                 try:
@@ -3889,7 +4544,9 @@ class WildTagApp(tk.Tk):
                     _place_decoded(t, pil_img)
                 self.after(0, _finish)
 
+
             self._val_decode_pool.submit(_worker)
+
 
         # Build every card frame up front, instant since no image is
         # touched, so the grid, scrollbar and captions all appear right
@@ -3898,6 +4555,9 @@ class WildTagApp(tk.Tk):
         self._val_pending_decode = []
         for i in range(len(batch)):
             self._val_pending_decode.append(_build_card(i, batch[i]))
+
+
+
 
         def _decode_visible():
             """Submit tiles currently within (or near) the viewport for
@@ -3922,6 +4582,7 @@ class WildTagApp(tk.Tk):
                 if y + h >= top - margin and y <= bot + margin:
                     _decode_tile(t)
 
+
         def _decode_rest():
             """Submit every remaining undecoded tile to the pool. The pool's
             worker limit bounds how many run at once, so this doesn't
@@ -3930,6 +4591,7 @@ class WildTagApp(tk.Tk):
             for t in self._val_pending_decode:
                 if not t.get("decoded") and not t.get("decoding"):
                     _decode_tile(t)
+
 
         # Show the grid immediately (placeholders). Submit the visible
         # screenful first, then everything else. All decoding happens on
@@ -3941,6 +4603,7 @@ class WildTagApp(tk.Tk):
             _decode_visible()
             self.after(50, _decode_rest)
         self.after(1, _kick)
+
 
     def _val_expand_image(self, img_path, img_id, det_id):
         """Open a single validation image large, fitted to the screen,
@@ -3954,15 +4617,18 @@ class WildTagApp(tk.Tk):
             messagebox.showerror("Error", f"Could not open image:\n{e}")
             return
 
+
         win = tk.Toplevel(self)
         win.title(img_path.name)
         win.configure(bg="#111111")
+
 
         sw = win.winfo_screenwidth()
         sh = win.winfo_screenheight()
         img.thumbnail((int(sw * 0.92), int(sh * 0.85)))
         base = img.convert("RGB")
         tw_, th_ = base.size
+
 
         def _draw_sibs(im):
             """Draw padded sibling boxes onto a copy at display size."""
@@ -3990,17 +4656,22 @@ class WildTagApp(tk.Tk):
                                outline="#FFC107", width=3)
             return im
 
+
         photo_norm = ImageTk.PhotoImage(_draw_sibs(base.copy()))
         win._photos = [photo_norm]  # keep references or Tk drops them
+
 
         lbl = tk.Label(win, image=photo_norm, bg="#111111")
         lbl.pack(padx=8, pady=(8,4))
 
+
         bottom = tk.Frame(win, bg="#111111")
         bottom.pack(pady=(0,8))
 
+
         state = {"mode": 0, "photos": {0: photo_norm}}
         MODES = ("Original", "Brightened", "High contrast", "Detail")
+
 
         def _apply_mode(mode):
             # Three distinct ways to make a hard-to-see subject clearer,
@@ -4029,6 +4700,7 @@ class WildTagApp(tk.Tk):
                 im = im.filter(ImageFilter.UnsharpMask(radius=2, percent=130))
             return im
 
+
         def _cycle_contrast(evt=None):
             mode = (state["mode"] + 1) % len(MODES)
             if mode not in state["photos"]:
@@ -4038,6 +4710,7 @@ class WildTagApp(tk.Tk):
             lbl.config(image=state["photos"][mode])
             mode_lbl.config(text=MODES[mode])
             state["mode"] = mode
+
 
         contrast_btn = tk.Button(bottom, text="Change contrast (E)",
                                  command=_cycle_contrast,
@@ -4049,10 +4722,12 @@ class WildTagApp(tk.Tk):
                                  cursor="hand2")
         contrast_btn.pack(side="left", padx=(0,8))
 
+
         mode_lbl = tk.Label(bottom, text=MODES[0], width=13, anchor="w",
                             font=self._fonts["small"],
                             bg="#111111", fg="#FFC107")
         mode_lbl.pack(side="left", padx=(0,16))
+
 
         if not hasattr(self, "_val_favourites"):
             self._val_favourites = set()
@@ -4082,9 +4757,11 @@ class WildTagApp(tk.Tk):
         fav_btn.config(command=_fav_click)
         fav_btn.pack(side="left", padx=(0,16))
 
+
         tk.Label(bottom, text="Click the image or press Esc to close",
                  font=self._fonts["small"], bg="#111111",
                  fg="#999999").pack(side="left")
+
 
         # Center on screen
         win.update_idletasks()
@@ -4092,11 +4769,13 @@ class WildTagApp(tk.Tk):
         y = max(0, (sh - win.winfo_height()) // 2 - 20)
         win.geometry(f"+{x}+{y}")
 
+
         lbl.bind("<Button-1>", lambda e: win.destroy())
         win.bind("<Escape>",   lambda e: win.destroy())
         win.bind("<KeyPress-e>", _cycle_contrast)
         win.bind("<KeyPress-E>", _cycle_contrast)
         win.focus_set()
+
 
     def _val_custom_labels_path(self):
         """Project-level custom species list, alongside the per-species
@@ -4104,6 +4783,7 @@ class WildTagApp(tk.Tk):
         if not self._val_folder:
             return None
         return self._val_folder / "custom_species.txt"
+
 
     def _val_load_custom_labels(self):
         p = self._val_custom_labels_path()
@@ -4130,6 +4810,7 @@ class WildTagApp(tk.Tk):
                     if l.strip() and not l.strip().startswith("#")]
         except Exception:
             return []
+
 
     def _val_add_custom_label(self, raw_text):
         """Sanitise a user-typed label to the same convention as model
@@ -4171,6 +4852,7 @@ class WildTagApp(tk.Tk):
             self._val_custom_labels = customs
         return lbl
 
+
     def _val_click_image(self, row, card, outer, det_id):
         """Open a correction dialog. If images are multi-selected, applies to all."""
         win = tk.Toplevel(self)
@@ -4178,6 +4860,7 @@ class WildTagApp(tk.Tk):
         win.configure(bg=C["white"])
         win.resizable(False, False)
         win.grab_set()
+
 
         # Show multi-select context if applicable
         n_selected = len(self._val_selected)
@@ -4192,6 +4875,7 @@ class WildTagApp(tk.Tk):
             targets = [det_id]
             header  = f"Current label: {row.get('label','').replace('_',' ')}"
 
+
         tk.Label(win, text=header,
                  font=self._fonts["label"], bg=C["white"],
                  fg=C["canopy"]).pack(padx=20, pady=(16,4))
@@ -4199,16 +4883,20 @@ class WildTagApp(tk.Tk):
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"]).pack(padx=20, pady=(0,6))
 
+
         lb_frame = tk.Frame(win, bg=C["white"])
         lb_frame.pack(padx=20, pady=(0,8))
         scrollbar = tk.Scrollbar(lb_frame)
         scrollbar.pack(side="right", fill="y")
 
+
         # Display labels in sentence case, store raw internally
         def _to_display(lbl):
             return lbl.replace("_", " ").capitalize()
 
+
         display_labels = [_to_display(l) for l in self._val_all_labels]
+
 
         lb = tk.Listbox(lb_frame, listvariable=tk.StringVar(
                             value=display_labels),
@@ -4220,6 +4908,7 @@ class WildTagApp(tk.Tk):
                         yscrollcommand=scrollbar.set)
         lb.pack(side="left")
         scrollbar.config(command=lb.yview)
+
 
         # Mouse-wheel / trackpad scrolling for the listbox. A tk Listbox
         # doesn't scroll on the wheel by default on Windows, so bind it,
@@ -4243,12 +4932,14 @@ class WildTagApp(tk.Tk):
         # Also scroll when the pointer is anywhere over the dialog
         win.bind("<MouseWheel>", _lb_wheel)
 
+
         # Pre-select current label
         current = row.get("label","")
         if current in self._val_all_labels:
             idx = self._val_all_labels.index(current)
             lb.selection_set(idx)
             lb.see(idx)
+
 
         # Add-new-label row: lets a validator create a label the model
         # doesn't have (subspecies, coarse groupings, local names). Added
@@ -4266,6 +4957,7 @@ class WildTagApp(tk.Tk):
                              relief="solid", bd=1)
         new_entry.pack(side="left")
 
+
         def _add_label():
             stored = self._val_add_custom_label(new_lbl_var.get())
             if not stored:
@@ -4281,6 +4973,7 @@ class WildTagApp(tk.Tk):
             lb.see(idx)
             new_lbl_var.set("")
 
+
         tk.Button(entry_row, text="Add",
                   command=_add_label,
                   font=self._fonts["small"],
@@ -4290,8 +4983,10 @@ class WildTagApp(tk.Tk):
                   cursor="hand2").pack(side="left", padx=(6,0))
         new_entry.bind("<Return>", lambda e: _add_label())
 
+
         btn_row = tk.Frame(win, bg=C["white"])
         btn_row.pack(padx=20, pady=(0,16))
+
 
         def _confirm():
             sel = lb.curselection()
@@ -4310,6 +5005,7 @@ class WildTagApp(tk.Tk):
             for tid in affected:
                 self._val_update_tile(tid)
 
+
         def _remove():
             for tid in targets:
                 self._val_corrections.pop(tid, None)
@@ -4318,6 +5014,7 @@ class WildTagApp(tk.Tk):
             win.destroy()
             for tid in affected:
                 self._val_update_tile(tid)
+
 
         tk.Button(btn_row, text="Confirm correction",
                   command=_confirm,
@@ -4333,12 +5030,14 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=10, pady=6,
                   cursor="hand2").pack(side="left")
 
+
     def _get_row_label(self, det_id):
         """Return the original label for a detection id."""
         for r in self._val_rows:
             if r.get("detection_id","") == det_id:
                 return r.get("label","")
         return ""
+
 
     def _val_update_tile(self, det_id):
         """Refresh one tile's border colour and caption in place, without
@@ -4353,9 +5052,11 @@ class WildTagApp(tk.Tk):
         except tk.TclError:
             return
 
+
         validated = row.get("validated","").strip().lower() == "yes"
         corrected = det_id in self._val_corrections
         selected  = det_id in self._val_selected
+
 
         if selected:
             border_col = "#2471A3"; bpad = 4
@@ -4366,6 +5067,7 @@ class WildTagApp(tk.Tk):
         else:
             border_col = C["border"]; bpad = 2
         outer.config(bg=border_col, padx=bpad, pady=bpad)
+
 
         # A clear "selected" badge in the tile's top-left corner, so
         # multi-select is obvious at a glance rather than relying on a
@@ -4386,11 +5088,13 @@ class WildTagApp(tk.Tk):
             except tk.TclError: pass
             tile["sel_badge"] = None
 
+
         conf = row.get("confidence","")
         try:
             conf_pct = f"{float(conf)*100:.0f}% confident"
         except (ValueError, TypeError):
             conf_pct = conf
+
 
         if selected:
             info_lbl.config(text="Selected", fg="#2471A3")
@@ -4401,12 +5105,14 @@ class WildTagApp(tk.Tk):
         else:
             info_lbl.config(text=conf_pct, fg=C["text_muted"])
 
+
     def _val_favourites_path(self):
         """favourites.json lives in the project's validation folder so it
         travels with the project and is scoped to it, not global."""
         if not self._val_folder:
             return None
         return self._val_folder / "favourites.json"
+
 
     def _val_load_favourites(self):
         if not hasattr(self, "_val_favourites"):
@@ -4420,6 +5126,7 @@ class WildTagApp(tk.Tk):
             except Exception:
                 pass
 
+
     def _val_save_favourites(self):
         p = self._val_favourites_path()
         if not p:
@@ -4429,6 +5136,7 @@ class WildTagApp(tk.Tk):
                          encoding="utf-8")
         except Exception:
             pass
+
 
     def _val_toggle_favourite(self, det_id, heart_widget=None):
         if not hasattr(self, "_val_favourites"):
@@ -4446,6 +5154,7 @@ class WildTagApp(tk.Tk):
                                     fg=("#FF4D6D" if on else "#FFFFFF"))
             except tk.TclError:
                 pass
+
 
     def _val_export_favourites(self):
         """Copy every favourited image into a favourites\\ folder (alongside
@@ -4465,6 +5174,7 @@ class WildTagApp(tk.Tk):
                 "Load a processed project first (Run tab).")
             return
 
+
         # Load favourites from this project's favourites.json
         favs = set()
         fav_json = val_folder / "favourites.json"
@@ -4478,6 +5188,7 @@ class WildTagApp(tk.Tk):
         # Merge any in-memory favourites from the current session too
         favs |= getattr(self, "_val_favourites", set())
 
+
         if not favs:
             messagebox.showinfo(
                 "No favourites",
@@ -4486,9 +5197,11 @@ class WildTagApp(tk.Tk):
                 "Favourite button in full-screen view) to mark it.")
             return
 
+
         import shutil
         dest_root = val_folder.parent / "favourites"
         dest_root.mkdir(exist_ok=True)
+
 
         # Favourites are keyed by detection_id; the sorted image lives at
         # validation/{species}/{detection_id}.jpg. Copy each into a matching
@@ -4512,11 +5225,13 @@ class WildTagApp(tk.Tk):
                     except Exception:
                         pass
 
+
         messagebox.showinfo(
             "Favourites exported",
             f"Copied {copied} favourite image{'s' if copied != 1 else ''} "
             f"across {len(species_hit)} species folder"
             f"{'s' if len(species_hit) != 1 else ''} to:\n{dest_root}")
+
 
     def _find_project_root(self):
         """Best-effort project root (the folder containing validation\\)."""
@@ -4534,6 +5249,7 @@ class WildTagApp(tk.Tk):
             return Path(s)
         return None
 
+
     def _val_toggle_select(self, det_id):
         """Toggle multi-select for a tile. Ctrl+click."""
         if det_id in self._val_selected:
@@ -4542,10 +5258,12 @@ class WildTagApp(tk.Tk):
             self._val_selected.add(det_id)
         self._val_update_tile(det_id)
 
+
     def _val_prev_batch(self):
         if self._val_batch > 0:
             self._val_batch -= 1
             self._val_refresh_gallery()
+
 
     def _val_next_batch(self):
         n_batches = (len(self._val_rows) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
@@ -4553,9 +5271,11 @@ class WildTagApp(tk.Tk):
             self._val_batch += 1
             self._val_refresh_gallery()
 
+
     def _val_complete_batch(self):
         if not self._val_csv_path or not self._val_rows:
             return
+
 
         pending = [r for r in self._val_rows
                    if r.get("validated","").strip().lower() != "yes"]
@@ -4563,8 +5283,10 @@ class WildTagApp(tk.Tk):
         end     = min(start + self.BATCH_SIZE, len(pending))
         batch   = pending[start:end]
 
+
         if not batch:
             return
+
 
         confirmed = messagebox.askyesno(
             "Mark batch complete",
@@ -4575,12 +5297,14 @@ class WildTagApp(tk.Tk):
         if not confirmed:
             return
 
+
         # Apply corrections and mark validated
         for row in batch:
             det_id = row.get("detection_id","")
             if det_id in self._val_corrections:
                 row["correct_label"] = self._val_corrections[det_id]
             row["validated"] = "yes"
+
 
         # Write updated validation.csv
         fields = list(self._val_rows[0].keys())
@@ -4589,6 +5313,7 @@ class WildTagApp(tk.Tk):
             writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
             writer.writerows(self._val_rows)
+
 
         # In a volunteer package, also drop a return-ready copy at the top
         # level of the unzipped folder (next to wildtag.py), so the file to
@@ -4606,10 +5331,12 @@ class WildTagApp(tk.Tk):
         except Exception:
             pass
 
+
         # Clear corrections and selection for completed rows
         for row in batch:
             self._val_corrections.pop(row.get("detection_id",""), None)
         self._val_selected.clear()
+
 
         # Write the batch's validation state to the validation store (instant,
         # keyed by detection_id). No big-CSV rewrite: the summary/matrix read
@@ -4621,9 +5348,11 @@ class WildTagApp(tk.Tk):
         except Exception:
             pass
 
+
         # Check if this species is now fully validated
         still_pending = [r for r in self._val_rows
                          if r.get("validated","").strip().lower() != "yes"]
+
 
         if not still_pending:
             # Species fully done — auto-advance to next unvalidated species
@@ -4631,6 +5360,7 @@ class WildTagApp(tk.Tk):
                 "Batch complete",
                 f"{len(batch)} images marked as validated.\n\n"
                 f"All images in this species have been validated!")
+
 
             # Find next species with pending images
             current_sp = self._val_species_var.get()
@@ -4649,6 +5379,7 @@ class WildTagApp(tk.Tk):
                     advanced = True
                     break
 
+
             if not advanced:
                 messagebox.showinfo(
                     "All validated",
@@ -4661,18 +5392,22 @@ class WildTagApp(tk.Tk):
             # Reset scroll to top
             self._val_canvas.yview_moveto(0)
 
+
             messagebox.showinfo(
                 "Batch complete",
                 f"{len(batch)} images marked as validated and saved.\n"
                 f"{len(still_pending)} images remaining.")
 
+
     # ── PANE: DISTRIBUTE ──────────────────────────────────────────────────────
+
 
     def _build_pane_distribute(self):
         pane  = tk.Frame(self._pane_area, bg=C["frost"])
         self._panes["distribute"] = pane
         inner = self._scrollable(pane)
         pad   = dict(padx=24, pady=6)
+
 
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         tk.Label(inner, text="Distribute", font=self._fonts["h2"],
@@ -4684,10 +5419,12 @@ class WildTagApp(tk.Tk):
             bg=C["frost"]).pack(fill="x", padx=24)
         tk.Frame(inner, bg=C["frost"], height=12).pack()
 
+
         # ── Part A: Prepare packages ─────────────────────────────────────
         self._section_label(inner, "Part A - Prepare packages for validators").pack(
             fill="x", padx=24, pady=(0,4))
         oA, cA = self._card(inner); oA.pack(fill="x", **pad)
+
 
         self._wrap_label(cA,
             "wildtag creates one zip per species folder and saves them to "
@@ -4697,8 +5434,10 @@ class WildTagApp(tk.Tk):
             "up and return it to you.",
             bg=C["white"]).pack(fill="x", pady=(0,12))
 
+
         self._dist_folder_var = tk.StringVar()
         self._dist_out_var    = tk.StringVar()
+
 
         batch_row = tk.Frame(cA, bg=C["white"])
         batch_row.pack(anchor="w", pady=(0,4))
@@ -4717,6 +5456,37 @@ class WildTagApp(tk.Tk):
             "a hard drive to someone working through images in bulk.",
             bg=C["white"]).pack(fill="x", pady=(0,10))
 
+
+        # Image-only packages: assume the volunteer has the standalone
+        # wildtag Validate app installed, so the zips need only carry the
+        # images (a fraction of the size of bundling the app + Python runtime
+        # into every zip).
+        self._dist_lite_var = tk.BooleanVar(
+            value=bool(self._settings.get("dist_lite", True)))
+        lite_row = tk.Frame(cA, bg=C["white"])
+        lite_row.pack(fill="x", pady=(0,4))
+        tk.Checkbutton(lite_row,
+                       text="Image-only packages (volunteers use the "
+                            "installed wildtag Validate app)",
+                       variable=self._dist_lite_var,
+                       font=self._fonts["label"],
+                       bg=C["white"], fg=C["canopy"],
+                       activebackground=C["white"],
+                       selectcolor=C["white"],
+                       relief="flat", cursor="hand2").pack(anchor="w")
+        self._wrap_label(cA,
+            "Recommended. Each zip carries only the images and a small "
+            "spreadsheet, so they are far smaller and faster to send. Send "
+            "the volunteer the wildtag Validate app once; they reuse it for "
+            "every package. Untick only for volunteers who cannot install the "
+            "app and need the old self-contained zip (app and Python runtime "
+            "bundled in every zip).",
+            bg=C["white"]).pack(fill="x", pady=(0,10))
+        self._dist_lite_var.trace_add(
+            "write", lambda *_: self._persist_setting(
+                "dist_lite", self._dist_lite_var))
+
+
         tk.Button(cA, text="Prepare zip packages",
                   command=self._dist_prepare,
                   font=("Segoe UI", 11, "bold"),
@@ -4725,16 +5495,19 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=16, pady=8,
                   cursor="hand2").pack(anchor="w", pady=(4,0))
 
+
         self._dist_prep_log = tk.Label(cA, text="",
                                        font=self._fonts["small"],
                                        bg=C["white"], fg=C["text_muted"],
                                        anchor="w", justify="left")
         self._dist_prep_log.pack(fill="x", pady=(6,0))
 
+
         # ── Part B: Collect validated zips ───────────────────────────────
         self._section_label(inner, "Part B - Collect returned validated zips").pack(
             fill="x", padx=24, pady=(20,4))
         oB, cB = self._card(inner); oB.pack(fill="x", **pad)
+
 
         self._wrap_label(cB,
             "When validators return their zips, drop them into the collect\\ "
@@ -4742,6 +5515,7 @@ class WildTagApp(tk.Tk):
             "to merge all returned validations into your master files at once. "
             "Processed zips are moved to collect\\processed\\ automatically.",
             bg=C["white"]).pack(fill="x", pady=(0,12))
+
 
         tk.Button(cB, text="Merge all returned validations",
                   command=self._dist_collect,
@@ -4751,16 +5525,19 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=16, pady=8,
                   cursor="hand2").pack(anchor="w")
 
+
         self._dist_import_log = tk.Label(cB, text="",
                                          font=self._fonts["small"],
                                          bg=C["white"], fg=C["text_muted"],
                                          anchor="w", justify="left")
         self._dist_import_log.pack(fill="x", pady=(6,0))
 
+
         # ── Part C: Export Camtrap DP ─────────────────────────────────────
         self._section_label(inner, "Part C - Export as Camtrap DP").pack(
             fill="x", padx=24, pady=(20,4))
         oC, cC = self._card(inner); oC.pack(fill="x", **pad)
+
 
         self._wrap_label(cC,
             "Export your project as a Camtrap DP data package - the TDWG open "
@@ -4770,8 +5547,10 @@ class WildTagApp(tk.Tk):
             "datapackage.json ready for submission to GBIF, Zenodo or camtrapR.",
             bg=C["white"]).pack(fill="x", pady=(0,8))
 
+
         btn_row_c = tk.Frame(cC, bg=C["white"])
         btn_row_c.pack(anchor="w", pady=(0,8))
+
 
         tk.Button(btn_row_c, text="Export Camtrap DP",
                   command=self._dist_camtrapdp,
@@ -4781,6 +5560,7 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=16, pady=8,
                   cursor="hand2").pack(side="left", padx=(0,8))
 
+
         tk.Button(btn_row_c, text="Save deployment template",
                   command=self._dist_save_deployment_template,
                   font=self._fonts["label"],
@@ -4788,16 +5568,19 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=10, pady=8,
                   cursor="hand2").pack(side="left")
 
+
         self._dist_camtrapdp_log = tk.Label(cC, text="",
                                             font=self._fonts["small"],
                                             bg=C["white"], fg=C["text_muted"],
                                             anchor="w", justify="left")
         self._dist_camtrapdp_log.pack(fill="x", pady=(6,0))
 
+
         # ── Part D: Export favourites ────────────────────────────────────
         self._section_label(inner, "Part D - Export favourite images").pack(
             fill="x", padx=24, pady=(20,4))
         oD, cD = self._card(inner); oD.pack(fill="x", **pad)
+
 
         self._wrap_label(cD,
             "Collect the images you hearted during validation into a "
@@ -4805,6 +5588,7 @@ class WildTagApp(tk.Tk):
             "organised into per-species subfolders. Handy for pulling out "
             "your best shots for reports, presentations or sharing.",
             bg=C["white"]).pack(fill="x", pady=(0,8))
+
 
         tk.Button(cD, text="♥ Export favourites",
                   command=self._val_export_favourites,
@@ -4814,7 +5598,9 @@ class WildTagApp(tk.Tk):
                   relief="flat", padx=16, pady=8,
                   cursor="hand2").pack(anchor="w")
 
+
     # ── DISTRIBUTE: actions ───────────────────────────────────────────────────
+
 
     def _dist_camtrapdp(self):
         """Export project as Camtrap DP package."""
@@ -4825,6 +5611,7 @@ class WildTagApp(tk.Tk):
             return
         project = Path(project_str)
 
+
         # Check deployment file exists
         dep_file = None
         for name in ["deployment.csv", "deployment.xlsx",
@@ -4832,6 +5619,7 @@ class WildTagApp(tk.Tk):
             if (project / name).exists():
                 dep_file = project / name
                 break
+
 
         if not dep_file:
             if messagebox.askyesno(
@@ -4842,9 +5630,11 @@ class WildTagApp(tk.Tk):
                 self._dist_save_deployment_template(project)
             return
 
+
         self._dist_camtrapdp_log.config(
             text="Exporting...", fg=C["forest"])
         self.update_idletasks()
+
 
         def _export():
             try:
@@ -4868,7 +5658,9 @@ class WildTagApp(tk.Tk):
                 self.after(0, lambda: messagebox.showerror(
                     "Export failed", err))
 
+
         threading.Thread(target=_export, daemon=True).start()
+
 
     def _dist_save_deployment_template(self, dest_dir=None):
         """Save a deployment.csv template to the project folder."""
@@ -4879,12 +5671,14 @@ class WildTagApp(tk.Tk):
                 return
             dest_dir = Path(dest_dir)
 
+
         template = dest_dir / "deployment.csv"
         if template.exists():
             if not messagebox.askyesno(
                 "File exists",
                 f"deployment.csv already exists in:\n{dest_dir}\n\nOverwrite?"):
                 return
+
 
         fields = [
             "locationName", "latitude", "longitude",
@@ -4907,11 +5701,13 @@ class WildTagApp(tk.Tk):
             w.writeheader()
             w.writerow(example)
 
+
         messagebox.showinfo(
             "Template saved",
             f"deployment.csv saved to:\n{template}\n\n"
             f"Fill in your site details - one row per camera trap deployment.\n"
             f"Then click Export Camtrap DP.")
+
 
     def _dist_pick_folder(self):
         p = filedialog.askdirectory(title="Select project folder")
@@ -4924,6 +5720,7 @@ class WildTagApp(tk.Tk):
             if not self._dist_out_var.get():
                 self._dist_out_var.set(p)
 
+
     def _make_readme(self, species_name: str, csv_name: str = None) -> str:
         sp_display = species_name.replace("_", " ").title()
         if not csv_name:
@@ -4931,12 +5728,16 @@ class WildTagApp(tk.Tk):
         return f"""wildtag.ai - Validation package
 ================================
 
+
 Species folder: {sp_display}
+
 
 WHAT TO DO
 ----------
 
+
 1. Unzip this file into a folder on your computer.
+
 
 2. Inside the folder you will find:
    - Run wildtag.bat   (double-click this to start)
@@ -4944,56 +5745,149 @@ WHAT TO DO
    - validate_env/     (a private copy of Python, already set up for you)
    - {species_name}/   (the species folder to validate)
 
+
 3. Double-click Run wildtag.bat to open wildtag.
    A black window will appear briefly, that is normal, wildtag itself
    will open in its own window a few seconds later.
    You do not need Python installed, everything needed is already
    included in this folder.
 
+
 4. Click the Validate tab in the left panel.
+
 
 5. Click Browse next to Validation folder and select the
    {species_name} folder inside this unzipped folder.
+
 
 6. The gallery will show images that need reviewing.
    - If a label is CORRECT, do nothing.
    - If a label is WRONG, click the image and select the correct species.
 
+
 7. When you have checked all images in a batch, click
    Mark batch complete and confirm.
 
+
 8. When you have finished all batches, close wildtag.
+
 
 SENDING BACK
 ------------
 
+
 After you have marked your batches complete, wildtag puts a small results
 file in this main folder (the one you unzipped) called:
 
+
       {csv_name}
+
 
 1. Send just that one file back to the project lead.
    You can rename it if you like, the name does not matter.
 2. That small file contains all your validations. You do NOT need to send
    the images back.
 
+
 If you would rather not hunt for that file, you can instead right-click the
 whole folder, choose Send to > Compressed (zipped) folder, and send that.
 Either way works.
 
+
 NOTES
 -----
+
 
 - You only need to flag images that are WRONG.
 - If you genuinely cannot identify an animal, select unidentifiable.
 - Do not rename, move, or delete any image files.
 - Do not edit the validation.csv directly in Excel.
 
+
 Thank you for your help.
 """
 
+
+    def _make_lite_readme(self, species_name: str, csv_name: str = None) -> str:
+        """README for image-only packages, where the volunteer already has the
+        wildtag Validate app installed and this zip contains just the images."""
+        sp_display = species_name.replace("_", " ").title()
+        if not csv_name:
+            csv_name = f"{species_name}_validation.csv"
+        return f"""wildtag.ai - Validation package (images only)
+=============================================
+
+
+Species folder: {sp_display}
+
+
+This package contains only the images to check. It does NOT include the
+wildtag app itself - you install that once, separately.
+
+
+FIRST TIME ONLY
+---------------
+
+
+If you have not already, install the wildtag Validate app the project lead
+sent you (a single file, wildtag_validate.exe). You only do this once; every
+future package you receive uses the same app.
+
+
+WHAT TO DO
+----------
+
+
+1. Unzip this file into a folder on your computer.
+
+
+2. Open the wildtag Validate app.
+
+
+3. Click the Validate tab, then click "Open folder" and select the folder
+   you just unzipped (the one containing a validation folder inside it).
+
+
+4. The gallery will show images that need reviewing.
+   - If a label is CORRECT, do nothing.
+   - If a label is WRONG, click the image and select the correct species.
+
+
+5. When you have checked all images in a batch, click
+   Mark batch complete and confirm.
+
+
+SENDING BACK
+------------
+
+
+After you have marked your batches complete, wildtag saves a small results
+file called {csv_name} inside the folder you unzipped
+(under validation\\{species_name}\\).
+
+
+Send just that one file back to the project lead. You do NOT need to send the
+images back. If you would rather not hunt for it, right-click the whole
+unzipped folder, choose Send to > Compressed (zipped) folder, and send that.
+
+
+NOTES
+-----
+
+
+- You only need to flag images that are WRONG.
+- If you genuinely cannot identify an animal, select unidentifiable.
+- Do not rename, move, or delete any image files.
+- Do not edit the validation.csv directly in Excel.
+
+
+Thank you for your help.
+"""
+
+
     def _dist_prepare(self):
         import zipfile, math, io
+
 
         proj_str = self._img_folder_var.get().strip()
         if not proj_str:
@@ -5001,9 +5895,11 @@ Thank you for your help.
                 "Please select a project folder in the Run tab first.")
             return
 
+
         project  = Path(proj_str)
         val_path = project / "validation"
         out_path = project / "distribute"
+
 
         if not val_path.exists():
             messagebox.showerror("No validation folder",
@@ -5011,8 +5907,10 @@ Thank you for your help.
                 "Please run wildtag first.")
             return
 
+
         out_path.mkdir(parents=True, exist_ok=True)
         (project / "collect").mkdir(parents=True, exist_ok=True)
+
 
         # Per-batch manifest: which detection_ids each zip contains, so collect
         # can later tell which distributed batches are fully validated (by
@@ -5024,6 +5922,7 @@ Thank you for your help.
         except Exception:
             manifest = {}
 
+
         species_dirs = [
             d for d in sorted(val_path.iterdir())
             if d.is_dir() and (d / "validation.csv").exists()
@@ -5033,19 +5932,28 @@ Thank you for your help.
                 "No species folders with validation.csv found.")
             return
 
+
+        # Image-only packages: the volunteer already has the standalone
+        # wildtag Validate app, so we ship only the images and small metadata,
+        # not the app or the Python runtime.
+        lite = self._dist_lite_var.get() if hasattr(self, "_dist_lite_var") else True
+
+
         script_dir   = Path(__file__).parent
         wildtag_py   = script_dir / "wildtag.py"
         wildtag_ico  = script_dir / "wildtag.ico"
         validate_env = script_dir / "validate_env"
 
+
         has_env = validate_env.exists()
-        if not has_env:
+        if not lite and not has_env:
             if not messagebox.askyesno(
                 "No validate_env found",
                 "validate_env\\ not found — volunteer zips will not include "
                 "a Python environment.\n\nRun setup_validate_env.bat to build it.\n\n"
                 "Continue without it?"):
                 return
+
 
         try:
             BATCH = int(self._dist_batch_var.get())
@@ -5057,6 +5965,7 @@ Thank you for your help.
             save_settings(self._settings)
         created = []
         errors  = []
+
 
         # Never send the same image twice. A ledger of image_names packaged in
         # previous runs is kept in distribute/, and images already validated
@@ -5070,6 +5979,7 @@ Thank you for your help.
                             if ln.strip()}
         newly_sent   = []
         skipped_done = 0
+
 
         # Sibling-bbox drawing (other detections in the same source image,
         # shown as thin muted boxes behind the main detection). If this
@@ -5090,6 +6000,7 @@ Thank you for your help.
             except Exception:
                 master_rows = []
 
+
         for sp_dir in species_dirs:
             sp   = sp_dir.name
             imgs = sorted([f for f in sp_dir.iterdir()
@@ -5097,6 +6008,7 @@ Thank you for your help.
             meta = [f for f in sp_dir.iterdir()
                     if f.suffix.lower() not in (".jpg",".jpeg",".png")]
             n_batches = max(1, math.ceil(len(imgs) / BATCH))
+
 
             # detection_id -> image_id for this species, from its own
             # validation.csv, so batch filenames (named by detection_id)
@@ -5122,6 +6034,7 @@ Thank you for your help.
             else:
                 other_meta = meta
 
+
             # Only package images that still need validation and have not been
             # sent before, so no volunteer ever receives the same image twice.
             validated_names = {r.get("image_name","") for r in sp_rows
@@ -5134,6 +6047,7 @@ Thank you for your help.
             if not imgs:
                 continue
             n_batches = max(1, math.ceil(len(imgs) / BATCH))
+
 
             for idx in range(n_batches):
                 batch = imgs[idx*BATCH:(idx+1)*BATCH]
@@ -5151,33 +6065,43 @@ Thank you for your help.
                     # compress_type argument per write.
                     DEF = zipfile.ZIP_DEFLATED
                     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_STORED) as zf:
-                        if wildtag_py.exists():
-                            zf.write(wildtag_py,  "wildtag.py", compress_type=DEF)
-                        if wildtag_ico.exists():
-                            zf.write(wildtag_ico, "wildtag.ico")
-                        # Volunteer guide, so the sidebar Help link opens it.
-                        for _g in ("volunteer_instructions.pdf",
-                                   "volunteer_instructions.html"):
-                            _gp = script_dir / _g
-                            if _gp.exists():
-                                zf.write(_gp, _g, compress_type=DEF)
+                        # The app, Python runtime and helper modules are only
+                        # bundled in the old self-contained ("full") packages.
+                        # Image-only packages assume the volunteer already has
+                        # the standalone wildtag Validate app.
+                        if not lite:
+                            if wildtag_py.exists():
+                                zf.write(wildtag_py,  "wildtag.py", compress_type=DEF)
+                            if wildtag_ico.exists():
+                                zf.write(wildtag_ico, "wildtag.ico")
+                            # Volunteer guide, so the sidebar Help link opens it.
+                            for _g in ("volunteer_instructions.pdf",
+                                       "volunteer_instructions.html"):
+                                _gp = script_dir / _g
+                                if _gp.exists():
+                                    zf.write(_gp, _g, compress_type=DEF)
 
-                        # Include wt_models (Python files only, no weights)
-                        wt_models_dir = script_dir / "wt_models"
-                        if wt_models_dir.exists():
-                            for f in wt_models_dir.rglob("*.py"):
-                                rel = f.relative_to(script_dir)
-                                zf.write(f, str(rel).replace("\\", "/"),
-                                         compress_type=DEF)
-                        bat = ("@echo off\r\n"
-                               "cd /d \"%~dp0\"\r\n"
-                               "set TCL_LIBRARY=%~dp0validate_env\\tcl\\tcl8.6\r\n"
-                               "set TK_LIBRARY=%~dp0validate_env\\tcl\\tk8.6\r\n"
-                               "validate_env\\python.exe wildtag.py\r\n"
-                               "pause\r\n")
-                        zf.writestr("Run wildtag.bat", bat)
-                        zf.writestr(f"README_{sp}.txt",
-                                    self._make_readme(sp, f"{sp}{sfx}_validation.csv"))
+
+                            # Include wt_models (Python files only, no weights)
+                            wt_models_dir = script_dir / "wt_models"
+                            if wt_models_dir.exists():
+                                for f in wt_models_dir.rglob("*.py"):
+                                    rel = f.relative_to(script_dir)
+                                    zf.write(f, str(rel).replace("\\", "/"),
+                                             compress_type=DEF)
+                            bat = ("@echo off\r\n"
+                                   "cd /d \"%~dp0\"\r\n"
+                                   "set TCL_LIBRARY=%~dp0validate_env\\tcl\\tcl8.6\r\n"
+                                   "set TK_LIBRARY=%~dp0validate_env\\tcl\\tk8.6\r\n"
+                                   "validate_env\\python.exe wildtag.py\r\n"
+                                   "pause\r\n")
+                            zf.writestr("Run wildtag.bat", bat)
+
+
+                        readme = (self._make_lite_readme(sp, f"{sp}{sfx}_validation.csv")
+                                  if lite else
+                                  self._make_readme(sp, f"{sp}{sfx}_validation.csv"))
+                        zf.writestr(f"README_{sp}.txt", readme)
                         if siblings_baked:
                             zf.writestr("validation/.siblings_baked", "1")
                         # Ship the project-level custom species list so
@@ -5216,12 +6140,13 @@ Thank you for your help.
                         # Other metadata (valid_species.txt etc.) copied as-is
                         for f in other_meta:
                             zf.write(f, f"validation/{sp}/{f.name}")
-                        if has_env:
+                        if not lite and has_env:
                             for f in validate_env.rglob("*"):
                                 if f.is_file():
                                     rel = f.relative_to(validate_env)
                                     zf.write(f, f"validate_env/{rel}",
                                              compress_type=DEF)
+
 
                         # Filtered sibling-bbox data for this batch only
                         if master_rows:
@@ -5248,17 +6173,20 @@ Thank you for your help.
                 except Exception as e:
                     errors.append(f"{zname}: {e}")
 
+
         # Record everything packaged this run so it is never sent again.
         if newly_sent:
             with open(sent_log, "a", encoding="utf-8") as f:
                 for name in newly_sent:
                     f.write(name + "\n")
 
+
         # Persist the per-batch manifest for completion tracking in collect.
         try:
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         except Exception:
             pass
+
 
         if not created:
             self._dist_prep_log.config(
@@ -5268,6 +6196,7 @@ Thank you for your help.
                 "To re-send from scratch, delete distributed_images.txt in the "
                 "distribute\\ folder and try again.")
             return
+
 
         msg = (f"{len(created)} zip(s) created in:\n{out_path}\n"
                f"{len(newly_sent)} new image(s) packaged; "
@@ -5281,8 +6210,11 @@ Thank you for your help.
         messagebox.showinfo("Packages ready", msg)
 
 
+
+
     def _dist_collect(self):
         import zipfile, tempfile, shutil
+
 
         proj_str = self._img_folder_var.get().strip()
         if not proj_str:
@@ -5290,15 +6222,18 @@ Thank you for your help.
                 "Please select a project folder in the Run tab first.")
             return
 
+
         project        = Path(proj_str)
         local_val      = project / "validation"
         collect_dir    = project / "collect"
         processed_dir  = collect_dir / "processed"
 
+
         if not local_val.exists():
             messagebox.showerror("No validation folder",
                 "Run wildtag first to generate validation images.")
             return
+
 
         if not collect_dir.exists():
             collect_dir.mkdir(parents=True)
@@ -5307,6 +6242,7 @@ Thank you for your help.
                 f"Drop returned validation files there (a .csv under any name, "
                 f"or a .zip) and click this button again.")
             return
+
 
         # Any returned file counts: loose CSVs (any name) and zips. wildtag
         # merges purely by detection_id, so neither the filename nor the folder
@@ -5319,15 +6255,19 @@ Thank you for your help.
                 f"Drop returned validation files there and try again.")
             return
 
+
         processed_dir.mkdir(exist_ok=True)
+
 
         def _read_csv(path):
             with open(path, newline="", encoding="utf-8-sig") as f:
                 return list(csv.DictReader(f))
 
+
         merged      = {}     # detection_id -> validated row
         read_ok     = []
         failed      = []
+
 
         def _ingest(rows):
             if not rows or "detection_id" not in (rows[0] or {}):
@@ -5338,6 +6278,7 @@ Thank you for your help.
                 did = r.get("detection_id", "").strip()
                 if did:
                     merged[did] = r
+
 
         for path in candidates:
             try:
@@ -5357,10 +6298,12 @@ Thank you for your help.
             except Exception as e:
                 failed.append(f"{path.name}: {e}")
 
+
         if not merged:
             messagebox.showinfo("Nothing to merge",
                 "No validated rows were found in the returned files.")
             return
+
 
         # Index every local detection_id to the species CSV that holds it.
         local_index = {}          # detection_id -> local csv path
@@ -5384,10 +6327,12 @@ Thank you for your help.
                 if did:
                     local_index[did] = lc
 
+
         unmatched = sum(1 for did in merged if did not in local_index)
         matched   = len(merged) - unmatched
         n_corr    = sum(1 for did, r in merged.items()
                         if did in local_index and r.get("correct_label", "").strip())
+
 
         preview = (f"Ready to merge from {len(read_ok)} file(s):\n\n"
                    f"{matched} validated detections, {n_corr} corrections.")
@@ -5399,8 +6344,10 @@ Thank you for your help.
             preview += "\n\nCould not read:\n" + "\n".join(failed)
         preview += "\n\nMerge into your local validation files?"
 
+
         if not messagebox.askyesno("Merge preview", preview):
             return
+
 
         # Apply corrections by detection_id.
         touched = set()
@@ -5417,12 +6364,14 @@ Thank you for your help.
                     touched.add(lc)
                     break
 
+
         for lc in touched:
             rows, fields = local_csvs[lc]
             with open(lc, "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=fields)
                 w.writeheader()
                 w.writerows(rows)
+
 
         # Move successfully-read files to collect/processed/. Unreadable files
         # stay in collect/ so they can be retried.
@@ -5435,6 +6384,7 @@ Thank you for your help.
             except Exception:
                 pass
 
+
         # Propagate into the validation store by detection_id (instant). The
         # big results_with_ids.csv is regenerated on Export, not here.
         self._val_folder = local_val
@@ -5442,6 +6392,7 @@ Thank you for your help.
             val_db_upsert(project, list(merged.values()), "volunteer")
         except Exception:
             pass
+
 
         # Mark distributed batches complete: a batch whose every detection is
         # now validated moves from distribute/ to distribute/completed/, so
@@ -5473,6 +6424,7 @@ Thank you for your help.
         except Exception:
             pass
 
+
         result = (f"Merged {matched} validated detections "
                   f"({n_corr} corrections) into {len(touched)} "
                   f"species folder(s).\n"
@@ -5490,8 +6442,10 @@ Thank you for your help.
             text=result, fg=C["forest"] if not failed else C["error"])
         messagebox.showinfo("Collect complete", result)
 
+
     def _dist_import(self):
         import zipfile, tempfile, shutil
+
 
         zip_path = filedialog.askopenfilename(
             title="Select validated zip to import",
@@ -5499,7 +6453,9 @@ Thank you for your help.
         if not zip_path:
             return
 
+
         zip_path = Path(zip_path)
+
 
         # Ask for local validation folder to merge into
         local_val = filedialog.askdirectory(
@@ -5508,9 +6464,11 @@ Thank you for your help.
             return
         local_val = Path(local_val)
 
+
         try:
             with zipfile.ZipFile(zip_path, "r") as zf:
                 names = zf.namelist()
+
 
             # Find species folder inside zip
             sp_names = sorted({
@@ -5519,36 +6477,44 @@ Thank you for your help.
                 and not n.startswith("README")
             })
 
+
             if not sp_names:
                 messagebox.showerror("Invalid zip",
                     "Could not find a species folder inside this zip.")
                 return
+
 
             # Extract to temp folder for inspection
             tmp = Path(tempfile.mkdtemp())
             with zipfile.ZipFile(zip_path, "r") as zf:
                 zf.extractall(tmp)
 
+
             # Build preview of changes
             preview_lines = []
             merge_data = {}  # sp -> list of row dicts
 
+
             for sp in sp_names:
                 tmp_csv = tmp / sp / "validation.csv"
                 local_csv = local_val / sp / "validation.csv"
+
 
                 if not tmp_csv.exists():
                     preview_lines.append(
                         f"{sp}: no validation.csv found in zip")
                     continue
 
+
                 with open(tmp_csv, newline="", encoding="utf-8-sig") as f:
                     imported_rows = list(csv.DictReader(f))
+
 
                 validated = [r for r in imported_rows
                              if r.get("validated","").strip().lower() == "yes"]
                 corrected = [r for r in validated
                              if r.get("correct_label","").strip()]
+
 
                 preview_lines.append(
                     f"{sp.replace('_',' ').title()}: "
@@ -5560,13 +6526,16 @@ Thank you for your help.
                         f"{r.get('label','')} -> "
                         f"{r.get('correct_label','')}")
 
+
                 merge_data[sp] = imported_rows
+
 
             if not merge_data:
                 messagebox.showinfo("Nothing to import",
                     "No validated data found in this zip.")
                 shutil.rmtree(tmp, ignore_errors=True)
                 return
+
 
             # Show preview and ask to confirm
             preview_text = "\n".join(preview_lines)
@@ -5576,9 +6545,11 @@ Thank you for your help.
                 f"{preview_text}\n\n"
                 f"Merge this into your local validation files?")
 
+
             if not confirmed:
                 shutil.rmtree(tmp, ignore_errors=True)
                 return
+
 
             # Merge
             merged_sp = []
@@ -5587,10 +6558,12 @@ Thank you for your help.
                 if not local_csv.exists():
                     continue
 
+
                 with open(local_csv, newline="", encoding="utf-8-sig") as f:
                     local_rows = list(csv.DictReader(f))
                     f.seek(0)
                     fields     = list(csv.DictReader(f).fieldnames)
+
 
                 # Build lookup from imported data
                 imported_lookup = {
@@ -5598,6 +6571,7 @@ Thank you for your help.
                     for r in imported_rows
                     if r.get("detection_id")
                 }
+
 
                 # Apply to local rows
                 for row in local_rows:
@@ -5609,15 +6583,19 @@ Thank you for your help.
                             if imp.get("correct_label","").strip():
                                 row["correct_label"] = imp["correct_label"]
 
+
                 with open(local_csv, "w", newline="",
                           encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=fields)
                     writer.writeheader()
                     writer.writerows(local_rows)
 
+
                 merged_sp.append(sp)
 
+
             shutil.rmtree(tmp, ignore_errors=True)
+
 
             # Write validated rows to the validation store (project = folder
             # containing the validation dir). Big CSV is regenerated on Export.
@@ -5635,14 +6613,17 @@ Thank you for your help.
             except Exception:
                 pass
 
+
             result = (f"Merged {len(merged_sp)} species folder(s):\n"
                       f"{', '.join(merged_sp)}\n\n"
                       f"Master results_with_ids.csv updated.")
             self._dist_import_log.config(text=result, fg=C["forest"])
             messagebox.showinfo("Import complete", result)
 
+
         except Exception as e:
             messagebox.showerror("Import error", str(e))
+
 
     def _map_init_state(self):
         """Initialise map data state. The map itself is launched from a
@@ -5655,8 +6636,10 @@ Thank you for your help.
         self._map_html_path = None
         self._map_ready     = False
 
+
     def _map_placeholder_html(self):
         return ""  # not used in browser mode
+
 
     def _map_open_browser(self):
         if self._map_html_path and Path(self._map_html_path).exists():
@@ -5664,6 +6647,7 @@ Thank you for your help.
             # Add timestamp to bust cache and force browser refresh
             url = f"file:///{self._map_html_path}?t={int(time.time())}"
             webbrowser.open(url)
+
 
     def _map_render(self):
         """Write the map HTML to a temp file. The browser opens it on
@@ -5688,6 +6672,7 @@ Thank you for your help.
             except tk.TclError:
                 pass
 
+
     def _map_status_set(self, text):
         """Route map status text to the Summary pane's map status label,
         if it exists. Safe no-op otherwise (there's no dedicated map pane)."""
@@ -5698,8 +6683,10 @@ Thank you for your help.
             except tk.TclError:
                 pass
 
+
     def _map_refresh(self):
         """Load deployment + observation data then render the map."""
+
 
         project_str = self._img_folder_var.get().strip()
         if not project_str:
@@ -5707,11 +6694,14 @@ Thank you for your help.
                 "No project selected - use the Run tab first")
             return
 
+
         project = Path(project_str)
+
 
         # Read deployment file - prefer Camtrap DP export if available
         dep_rows   = None
         dep_source = None
+
 
         cdp_path = project / "camtrapdp" / "deployments.csv"
         if cdp_path.exists():
@@ -5721,6 +6711,7 @@ Thank you for your help.
                 dep_source = "camtrapdp/deployments.csv"
             except Exception:
                 pass
+
 
         if not dep_rows:
             for name in ["deployment.csv","deployment.xlsx",
@@ -5747,9 +6738,11 @@ Thank you for your help.
                     self._map_status_set(f"Error reading {name}: {e}")
                     return
 
+
         if not dep_rows:
             self._map_status_set("No deployment file found in project folder")
             return
+
 
         def _col(row, *candidates):
             for c in candidates:
@@ -5758,11 +6751,13 @@ Thank you for your help.
                         return k
             return None
 
+
         sample   = dep_rows[0]
         lat_col  = _col(sample, "latitude", "lat", "y")
         lon_col  = _col(sample, "longitude", "lon", "long", "x")
         site_col = _col(sample, "locationname", "location_name",
                         "site", "sitename", "site_name", "station")
+
 
         if not all([lat_col, lon_col, site_col]):
             missing = [n for n,c in [("latitude",lat_col),
@@ -5771,6 +6766,7 @@ Thank you for your help.
             self._map_status_set(
                 f"Deployment file missing: {', '.join(missing)}")
             return
+
 
         deps = []
         for row in dep_rows:
@@ -5790,10 +6786,12 @@ Thank you for your help.
             except (ValueError, TypeError):
                 continue
 
+
         if not deps:
             self._map_status_set(
                 "No valid coordinates found in deployment file")
             return
+
 
         # Pre-index deployment site names so the aggregate builder's
         # site keys (and any name-style variants) line up with them
@@ -5805,12 +6803,14 @@ Thank you for your help.
             site_by_key[s.lower().replace("_", " ")] = d["site"]
         self._map_site_keys = site_by_key
 
+
         # Pull per-site species counts from the shared aggregate cache
         # instead of re-parsing the whole results file on every map open.
         agg = self._get_aggregates(on_ready=self._map_refresh)
         if agg is None:
             self._map_status_set("Loading detection data…")
             return
+
 
         def _build_obs(agg_key):
             obs = {d["site"]: {} for d in deps}
@@ -5823,17 +6823,19 @@ Thank you for your help.
                     bucket[sp] = bucket.get(sp, 0) + n
             return obs
 
-        # Build all three label representations for the map's AI/Human/Best
-        # selector. "site_species" (Best) stays the default for compatibility.
+
+        # Build all three label representations for the map selector.
         site_obs = _build_obs("site_species")
-        self._map_deps       = deps
-        self._map_site_obs   = site_obs
-        self._map_obs_ai     = _build_obs("site_species_ai")
-        self._map_obs_human  = _build_obs("site_species_human")
-        self._map_obs_best   = _build_obs("site_species_best")
+        self._map_deps      = deps
+        self._map_site_obs  = site_obs
+        self._map_obs_ai    = _build_obs("site_species_ai")
+        self._map_obs_human = _build_obs("site_species_human")
+        self._map_obs_best  = _build_obs("site_species_best")
+
 
         # Species filtering now happens inside the browser map, so there's
         # no app-side dropdown to populate here.
+
 
         total_dets = sum(n for obs in site_obs.values()
                          for sp,n in obs.items()
@@ -5841,7 +6843,9 @@ Thank you for your help.
         self._map_status_set(
             f"{len(deps)} sites, {total_dets} detections from {dep_source}")
 
+
         self._map_render()
+
 
     def _map_generate_html(self, deps, site_obs, filt):
         import json as _json
@@ -5850,8 +6854,6 @@ Thank you for your help.
         SKIP = {"empty","low_confidence","unclassified","human","vehicle"}
         deps_esc = _json.dumps(deps).replace(chr(39), chr(92)+chr(39))
         obs_esc  = _json.dumps(site_obs).replace(chr(39), chr(92)+chr(39))
-        # The three label representations. Fall back to the Best/default obs if
-        # a representation wasn't built (e.g. older cached aggregate).
         obs_ai_esc    = _json.dumps(getattr(self, "_map_obs_ai", None)
                                     or site_obs).replace(chr(39), chr(92)+chr(39))
         obs_human_esc = _json.dumps(getattr(self, "_map_obs_human", None)
@@ -5905,6 +6907,7 @@ let obs=OBS.best;
 const SKIP=new Set({skip_json});
 let filter={filt_json};
 
+
 const map=L.map('map').setView([{centre_lat},{centre_lon}],12);
 const positron=L.tileLayer('https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png',{{attribution:'© OpenStreetMap contributors © CARTO',maxZoom:19}});
 const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',{{attribution:'Tiles © Esri',maxZoom:19}});
@@ -5912,9 +6915,8 @@ positron.addTo(map);
 L.control.layers({{'Light':positron,'Satellite':satellite}}).addTo(map);
 L.control.scale({{imperial:false}}).addTo(map);
 
-// Build the species list from ALL sites' data, so filtering happens
-// entirely in-page, no need to regenerate from the app. Rebuilt whenever the
-// label representation changes (species present can differ between views).
+
+// Species list rebuilt whenever the label representation changes.
 const sel=document.getElementById('sp');
 const cnt=document.getElementById('cnt');
 const rep=document.getElementById('rep');
@@ -5929,12 +6931,12 @@ function buildSpeciesList(){{
     const o=document.createElement('option');
     o.value=s;o.textContent=s.replace(/_/g,' ');sel.appendChild(o);
   }});
-  // keep the previous species selection if still available, else All
   sel.value=[...sel.options].some(o=>o.value===prev)?prev:'all';
   filter=sel.value;
 }}
 buildSpeciesList();
 sel.value=(filter&&filter!=='all')?filter:'all';
+
 
 let markers=[];
 function draw(){{
@@ -5969,11 +6971,14 @@ draw();
 </script></body></html>"""
 
 
+
+
     def _build_pane_summary(self):
         pane = tk.Frame(self._pane_area, bg=C["frost"])
         self._panes["summary"] = pane
         inner = self._scrollable(pane)
         pad   = dict(padx=24, pady=6)
+
 
         tk.Frame(inner, bg=C["frost"], height=8).pack()
         tk.Label(inner, text="Summary", font=self._fonts["h2"],
@@ -5982,6 +6987,7 @@ draw();
         self._wrap_label(inner,
             "This page shows what was processed and the current state of validation.",
             bg=C["frost"]).pack(fill="x", padx=24)
+
 
         exp_row = tk.Frame(inner, bg=C["frost"])
         exp_row.pack(fill="x", padx=24, pady=(8, 0))
@@ -5997,7 +7003,9 @@ draw();
             bg=C["frost"], fg=C["text_muted"])
         self._summary_export_lbl.pack(side="left", padx=(10, 0))
 
+
         tk.Frame(inner, bg=C["frost"], height=12).pack()
+
 
         # ── Pipeline stats ───────────────────────────────────────────────
         self._section_label(inner, "What was processed").pack(
@@ -6005,10 +7013,12 @@ draw();
         stats_row = tk.Frame(inner, bg=C["frost"])
         stats_row.pack(fill="x", padx=24, pady=6)
 
+
         self._stat_images  = tk.StringVar(value="0")
         self._stat_species = tk.StringVar(value="0")
         self._stat_errors  = tk.StringVar(value="0")
         self._stat_time    = tk.StringVar(value="0")  # kept for run summary, not shown
+
 
         for var, label in [
             (self._stat_images,  "Images sorted"),
@@ -6021,6 +7031,7 @@ draw();
                      bg=C["white"], fg=C["forest"]).pack()
             tk.Label(sc, text=label, font=self._fonts["small"],
                      bg=C["white"], fg=C["text_muted"]).pack()
+
 
         # Launch map, occupies the slot the low-value "Last run" card used
         # to. Opens the interactive deployment map in the browser (with its
@@ -6040,15 +7051,18 @@ draw();
                  fg=C["text_muted"])
         self._summary_map_status.pack()
 
+
         # ── Validation stats ─────────────────────────────────────────────
         self._section_label(inner, "Validation progress").pack(
             fill="x", padx=24, pady=(16,4))
         val_row = tk.Frame(inner, bg=C["frost"])
         val_row.pack(fill="x", padx=24, pady=6)
 
+
         self._stat_validated   = tk.StringVar(value="0")
         self._stat_pct         = tk.StringVar(value="0%")
         self._stat_corrections = tk.StringVar(value="0")
+
 
         for var, label in [
             (self._stat_validated,   "Detections validated"),
@@ -6062,6 +7076,7 @@ draw();
             tk.Label(sc, text=label, font=self._fonts["small"],
                      bg=C["white"], fg=C["text_muted"]).pack()
 
+
         # Refresh validation stats button
         tk.Button(inner, text="Refresh validation stats",
                   command=self._refresh_val_stats,
@@ -6070,9 +7085,11 @@ draw();
                   relief="flat", padx=10, pady=4,
                   cursor="hand2").pack(anchor="e", padx=24)
 
+
         # ── Confusion matrix ─────────────────────────────────────────────
         self._section_label(inner, "Confusion matrix").pack(
             fill="x", padx=24, pady=(16,4))
+
 
         cm_ctrl = tk.Frame(inner, bg=C["frost"])
         cm_ctrl.pack(fill="x", padx=24, pady=(0,6))
@@ -6080,6 +7097,7 @@ draw();
             "Shows how AI labels compare to validated labels. "
             "Rows are what the AI predicted, columns are the validated labels.",
             bg=C["frost"]).pack(side="left", fill="x", expand=True)
+
 
         self._cm_mode = tk.StringVar(value="errors")
         tk.Radiobutton(cm_ctrl, text="Errors only",
@@ -6099,12 +7117,14 @@ draw();
                        command=self._refresh_val_stats).pack(
                            side="right", padx=(8,0))
 
+
         o_cm, c_cm = self._card(inner); o_cm.pack(fill="x", **pad)
         self._cm_frame = c_cm
         tk.Label(c_cm,
                  text="Confusion matrix will appear here once images have been validated.",
                  font=self._fonts["small"], bg=C["white"],
                  fg=C["text_muted"], anchor="w").pack(fill="x")
+
 
         # ── Species breakdown ────────────────────────────────────────────
         self._section_label(inner, "How many detections per species").pack(
@@ -6114,6 +7134,7 @@ draw();
         self._wrap_label(c2,
             "Once you have run the pipeline, you will see a count of detections per species here.",
             bg=C["white"]).pack(fill="x")
+
 
         # ── Output location ──────────────────────────────────────────────
         self._section_label(inner, "Where your files have been saved").pack(
@@ -6125,6 +7146,7 @@ draw();
             font=self._fonts["small"], bg=C["white"],
             fg=C["text_muted"], anchor="w")
         self._output_lbl.pack(fill="x", pady=(0,4))
+
 
     def _prelink_project(self):
         """Called shortly after a project folder is selected. If the project
@@ -6139,11 +7161,13 @@ draw();
         if not master.exists():
             return  # not processed yet, nothing to link
 
+
         # Validation store: create + migrate existing validation state on first
         # open. Migration reads the big file once, so show the linking popup up
         # front (immediate feedback) and do it in the background rather than a
         # silent 45s wait. After first open the db exists and this is instant.
         val_folder = Path(path) / "validation"
+
 
         def _staleness_then_link():
             try:
@@ -6158,8 +7182,10 @@ draw();
                 pass
             self._get_aggregates()
 
+
         if not _val_db_path(path).exists():
             self._show_linking_popup()
+
 
             def _bg_migrate():
                 try:
@@ -6169,15 +7195,19 @@ draw();
                     pass
                 self.after(0, _after_migrate)
 
+
             def _after_migrate():
                 self._hide_linking_popup()
                 _staleness_then_link()
 
+
             threading.Thread(target=_bg_migrate, daemon=True).start()
             return
 
+
         _staleness_then_link()
         return
+
 
         # Also check whether the validation folder is complete. A crash
         # during the sort step (e.g. an interrupted GPU run) can leave it
@@ -6189,6 +7219,7 @@ draw();
                 self.after(300, lambda: self._offer_resume_sort(path, info))
         except Exception:
             pass
+
 
     def _offer_resume_sort(self, project_path, info):
         """Prompt to finish an interrupted/incomplete sort, then run it. The
@@ -6213,15 +7244,17 @@ draw();
                 "was not found in this project.")
             return
 
+
         def _work():
             try:
                 quality = self._QUALITY_MAP.get(
                     self._quality_var.get(), 65) if hasattr(self, "_quality_var") else 65
                 cls = getattr(self, "_last_classifier_id", "") or ""
+                show_conf = self._show_conf.get() if hasattr(self, "_show_conf") else True
                 sort_detections_counted(
                     enriched, quality, None,
                     self._log,
-                    classifier_id=cls)
+                    classifier_id=cls, show_conf=show_conf)
                 self.after(0, lambda: messagebox.showinfo(
                     "Validation folders complete",
                     "The validation folders have been finished. You can now "
@@ -6231,6 +7264,7 @@ draw();
                     "Resume failed",
                     f"Could not finish the validation folders:\n{e}"))
         threading.Thread(target=_work, daemon=True).start()
+
 
     def _show_linking_popup(self):
         """Small modal shown while the aggregate cache builds, so the user
@@ -6257,6 +7291,7 @@ draw();
                      fg=C["text_muted"], wraplength=340,
                      justify="center").pack(padx=40, pady=(0,10))
 
+
             # Native indeterminate progressbar. Driven by Tk's own event loop
             # via .start(), so it keeps moving through brief main-thread work
             # and reliably reads as "something is happening".
@@ -6267,6 +7302,7 @@ draw();
                 pb.start(12)   # ms between steps
             except Exception:
                 pass
+
 
             self._linking_popup = win
             # Position before showing
@@ -6287,6 +7323,7 @@ draw();
         except Exception:
             self._linking_popup = None
 
+
     def _hide_linking_popup(self):
         win = getattr(self, "_linking_popup", None)
         if not win:
@@ -6305,6 +7342,7 @@ draw();
             self.after(remaining, _destroy)
         else:
             _destroy()
+
 
     def _find_master_csv(self):
         """Locate results_with_ids.csv from the current project context,
@@ -6325,15 +7363,18 @@ draw();
                 return c
         return None
 
+
     def _get_aggregates(self, on_ready=None, force=False):
         """Return precomputed aggregates from results_with_ids.csv, or None
         if not yet available. Reads the big file at most once per file
         version: subsequent pane switches reuse the cached result.
 
+
         The heavy parse runs in a background thread. If a fresh parse is
         needed, this returns None immediately and calls on_ready() once the
         aggregates are built. If the cache is already valid, it returns the
         aggregates synchronously.
+
 
         Aggregates (all small) computed in a single pass:
           site_species  : {site: {species: count}}
@@ -6353,25 +7394,27 @@ draw();
             return None
         key = (str(master), mtime)
 
+
         if not force and self._agg_cache_key == key and self._agg_cache:
             return self._agg_cache
+
 
         if self._agg_loading:
             return None
         self._agg_loading = True
         self._show_linking_popup()
 
+
         # Pre-index deployment site names (for map matching) once, off the
         # aggregate build so it stays purely about the results file
         site_keys = getattr(self, "_map_site_keys", None)
 
+
         def _build():
             from collections import defaultdict
             site_species  = defaultdict(lambda: defaultdict(int))
-            # Per-site species counts under each label representation, so the
-            # map can switch between AI prediction, human validation, and best
-            # available. "site_species" mirrors the Best view (unchanged name
-            # for backward compatibility).
+            # per-site species counts under each label representation, so the
+            # map can switch AI / human / best. site_species mirrors best.
             site_species_ai    = defaultdict(lambda: defaultdict(int))
             site_species_human = defaultdict(lambda: defaultdict(int))
             site_species_best  = defaultdict(lambda: defaultdict(int))
@@ -6389,12 +7432,12 @@ draw();
                         correct = r.get("correct_label","").strip()
                         is_val  = r.get("validated","").strip().lower() == "yes"
                         final   = correct or label
-                        # the three representations for this detection
                         ai_sp    = label
                         human_sp = (correct or label) if is_val else NOT_VAL
                         best_sp  = final
                         if label:
                             species_total[final] += 1
+
 
                         # site aggregation for the map
                         loc = r.get("locationName","").strip()
@@ -6413,6 +7456,7 @@ draw();
                         if loc and best_sp:
                             site_species_best[loc][best_sp] += 1
 
+
                         # validation aggregation for summary + matrix
                         if is_val:
                             n_validated += 1
@@ -6423,6 +7467,7 @@ draw();
                                 cm_errors[(label, correct)] += 1
             except Exception:
                 pass
+
 
             agg = {
                 "site_species":  {k: dict(v) for k,v in site_species.items()},
@@ -6437,6 +7482,7 @@ draw();
                 "cm_all":        dict(cm_all),
             }
 
+
             def _done():
                 self._agg_cache     = agg
                 self._agg_cache_key = key
@@ -6447,8 +7493,10 @@ draw();
                     except Exception: pass
             self.after(0, _done)
 
+
         threading.Thread(target=_build, daemon=True).start()
         return None
+
 
     def _validation_stats_from_folders(self, val_folder=None):
         """Compute validation counts + confusion matrix from the small
@@ -6465,6 +7513,7 @@ draw();
         vf = Path(vf) if vf else None
         if not vf or not vf.exists():
             return None
+
 
         n_validated = n_corrected = 0
         cm_all    = defaultdict(int)
@@ -6497,6 +7546,7 @@ draw();
             "cm_errors":   dict(cm_errors),
         }
 
+
     def _summary_export_results(self, silent=False):
         """Regenerate results_with_ids.csv from the detection record + the
         validation store (atomic). This is the only big-file write. Runs off the
@@ -6509,6 +7559,7 @@ draw();
                     "No results_with_ids.csv found for this project.")
             return
         proj = str(Path(master).parent)
+
 
         popup = None
         if not silent:
@@ -6532,11 +7583,13 @@ draw();
             except Exception:
                 popup = None
 
+
         result = {}
         def _bg():
             n, err = val_db_export_csv(proj, master)
             result["n"], result["err"] = n, err
             self.after(0, _done)
+
 
         def _done():
             if popup:
@@ -6558,7 +7611,9 @@ draw();
                     f"Wrote {n:,} rows to results_with_ids.csv, updated with "
                     f"all current validations.")
 
+
         threading.Thread(target=_bg, daemon=True).start()
+
 
     def _refresh_val_stats(self, auto=False):
         """Update validation stats + confusion matrix from precomputed
@@ -6578,6 +7633,7 @@ draw();
             # find it, then fall through to the cache path
             self._last_output_dir = str(Path(p).parent / "validation")
 
+
         # Validation counts + confusion matrix come LIVE from the validation
         # store (SQLite): instant, always current, independent of the big CSV.
         proj = self._img_folder_var.get().strip() if getattr(
@@ -6591,6 +7647,7 @@ draw();
         n_val  = vstats["n_validated"]
         n_corr = vstats["n_corrected"]
 
+
         # Total detections (for the % only) from the cached detection aggregate;
         # never block the summary on the big-file parse. Build it in the
         # background if not cached yet and fill the percentage in when ready.
@@ -6601,18 +7658,22 @@ draw();
             self._get_aggregates(
                 on_ready=lambda: self._refresh_val_stats(auto=True))
 
+
         self._stat_validated.set(f"{n_val:,}")
         self._stat_pct.set(f"{n_val/total*100:.1f}%" if total else "…")
         self._stat_corrections.set(f"{n_corr:,}")
+
 
         # Confusion matrix, from the live store
         mode   = self._cm_mode.get()
         counts = dict(vstats["cm_errors"] if mode == "errors" else vstats["cm_all"])
         n_cm   = sum(counts.values())
 
+
         # Clear old matrix
         for w in self._cm_frame.winfo_children():
             w.destroy()
+
 
         if not counts:
             tk.Label(self._cm_frame,
@@ -6621,10 +7682,12 @@ draw();
                      fg=C["text_muted"], anchor="w").pack(fill="x")
             return
 
+
         # Label set: every class that appears in either axis (>=1 count), so
         # the grid is square (N x N).
         all_labels = sorted({p[0] for p in counts} | {p[1] for p in counts})
         n = len(all_labels)
+
 
         tk.Label(self._cm_frame,
                  text=f"{'Errors only' if mode=='errors' else 'All validated'}  "
@@ -6635,11 +7698,13 @@ draw();
         if n == 0:
             return
 
+
         # Canvas-drawn matrix: fixed square cells, vertical column headers,
         # sized to fit the whole matrix (no scrolling) and centered.
         CELL, HEADER, ROWLAB = 32, 100, 130
         total_w = ROWLAB + n * CELL
         total_h = HEADER + n * CELL
+
 
         holder = tk.Frame(self._cm_frame, bg=C["white"])
         holder.pack(pady=4)                      # centered by default
@@ -6647,7 +7712,9 @@ draw();
                        width=total_w, height=total_h)
         cv.pack()
 
+
         short = lambda s: s.replace("_", " ")
+
 
         # Column headers, rotated to read vertically
         for j, lbl in enumerate(all_labels):
@@ -6680,6 +7747,7 @@ draw();
                                    text=str(count), font=self._fonts["small"],
                                    fill=tfg)
 
+
     def _rebuild_species_list(self, species_counts):
         for w in self._species_frame.winfo_children():
             w.destroy()
@@ -6702,6 +7770,7 @@ draw();
                      font=self._fonts["small"], bg=C["white"],
                      fg=C["text_muted"], anchor="w").pack(fill="x")
 
+
     def _update_summary(self, success, skipped, species_counts, output_dir):
         import datetime
         self._last_output_dir = output_dir
@@ -6711,6 +7780,7 @@ draw();
         self._stat_time.set(datetime.datetime.now().strftime("%H:%M"))
         self._output_lbl.config(text=str(output_dir), fg=C["canopy"])
         self._rebuild_species_list(species_counts)
+
 
         # Persist so the Summary pane can restore these after a restart,
         # previously they lived only in memory and showed 0 next session
@@ -6727,6 +7797,7 @@ draw();
         except Exception:
             pass
 
+
     def _restore_summary_stats(self):
         """Repopulate the 'What was processed' cards after a restart. The
         numbers are set in memory when a run completes; on a fresh launch
@@ -6736,6 +7807,7 @@ draw();
         # Already populated this session (a run finished, or restored)
         if self._stat_images.get() not in ("", "0"):
             return
+
 
         proj = None
         if getattr(self, "_last_output_dir", None):
@@ -6750,6 +7822,7 @@ draw();
                 proj = Path(s)
         if not proj or not proj.exists():
             return
+
 
         # Preferred source: the human-readable run summary written at the
         # end of every run. It already contains the exact figures, so
@@ -6790,6 +7863,7 @@ draw();
             except Exception:
                 pass
 
+
         # Exact stats saved when the run finished, if available
         stats_file = proj / "wildtag_run_stats.json"
         if stats_file.exists():
@@ -6806,12 +7880,14 @@ draw();
             except Exception:
                 pass
 
+
         # Project processed before the stats file existed, reconstruct
         # from the validation CSVs. Row counting scales with project size,
         # so do it off the UI thread and populate when done.
         val_dir = proj / "validation"
         if not val_dir.exists():
             return
+
 
         def _reconstruct():
             species_counts = {}
@@ -6841,12 +7917,14 @@ draw();
                 self.after(0, _clear)
                 return
 
+
             import datetime
             try:
                 mt = (proj / "results_with_ids.csv").stat().st_mtime
                 when = datetime.datetime.fromtimestamp(mt).strftime("%d %b")
             except OSError:
                 when = "-"
+
 
             def _apply():
                 total = sum(species_counts.values())
@@ -6857,7 +7935,9 @@ draw();
                 self._rebuild_species_list(species_counts)
                 self._output_lbl.config(text=str(val_dir), fg=C["canopy"])
 
+
             self.after(0, _apply)
+
 
         # Placeholder while reconstruction reads the validation CSVs, so
         # the cards don't read a misleading zero in the meantime
@@ -6866,7 +7946,9 @@ draw();
             self._stat_species.set("…")
         threading.Thread(target=_reconstruct, daemon=True).start()
 
+
     # ── RUN ───────────────────────────────────────────────────────────────────
+
 
     def _end_run(self):
         """Reset Run/Stop button state once a run finishes, stops, or errors."""
@@ -6874,6 +7956,7 @@ draw();
         self._stop_event.clear()
         self._run_btn.configure(state="normal", bg=C["forest"])
         self._stop_btn.configure(state="disabled", text="Stop", bg=C["mist"])
+
 
     def _confirm_stop(self):
         if not self._job_running or self._stop_event.is_set():
@@ -6890,12 +7973,123 @@ draw();
             self._log("\nStop requested by user - finishing the current "
                        "batch and saving progress...", "skip")
 
+
+    def _redraw_validation(self):
+        """Re-render the validation images for the current project using the
+        current annotation options, without re-running detection and without
+        disturbing validation progress."""
+        if getattr(self, "_job_running", False):
+            messagebox.showinfo(
+                "Please wait",
+                "wildtag is busy with another job. Let it finish before "
+                "redrawing.")
+            return
+
+
+        master = self._find_master_csv()
+        if not master:
+            messagebox.showerror(
+                "Nothing to redraw",
+                "No processed results were found for this project. Select "
+                "your project folder in Step 1 and run wildtag first.")
+            return
+        validation_dir = master.parent / "validation"
+        if not validation_dir.exists():
+            messagebox.showerror(
+                "Nothing to redraw",
+                "No validation folder was found for this project. Run "
+                "wildtag first to create the validation images.")
+            return
+
+
+        show_conf = self._show_conf.get() if hasattr(self, "_show_conf") else True
+        quality   = self._QUALITY_MAP.get(self._quality_var.get(), 65)
+
+
+        if not messagebox.askyesno(
+            "Redraw validation images",
+            "This re-renders every validation image for this project using "
+            "the image quality and confidence-score settings above.\n\n"
+            "It does not re-run detection, and it keeps all your validation "
+            "progress (validated images and corrections). Depending on how "
+            "many images there are, this can take a little while.\n\n"
+            "Redraw now?"):
+            return
+
+
+        self._run_btn.configure(state="disabled", bg=C["mist"])
+        self._redraw_btn.configure(state="disabled", bg=C["mist"])
+        self._stop_event.clear()
+        self._job_running = True
+        self._stop_btn.configure(state="normal", text="Stop", bg=C["mist"])
+        self._set_status("Redrawing...", C["skip"])
+        self._start_progress()
+
+
+        def _progress(done, total):
+            if total > 0:
+                w = self._prog_canvas.winfo_width()
+                self._prog_canvas.coords(
+                    self._prog_bar, 0, 0, int(w * done / total), 4)
+
+
+        def _work():
+            try:
+                redrawn, skipped, stopped = redraw_validation_images(
+                    master, quality, self._log,
+                    show_conf=show_conf,
+                    progress=lambda d, t: self.after(
+                        0, lambda: _progress(d, t)),
+                    stop_flag=self._stop_event.is_set)
+                self.after(0, lambda: self._set_status(
+                    "Stopped" if stopped else "Redraw complete",
+                    C["skip"] if stopped else C["forest"]))
+                # Reload the Validate gallery so it shows the freshly redrawn
+                # images instead of the ones it had already cached in memory.
+                self.after(0, self._val_reload_if_loaded)
+                self.after(0, lambda: messagebox.showinfo(
+                    "Redraw complete",
+                    f"{redrawn:,} validation image(s) redrawn.\n"
+                    f"{skipped:,} skipped."
+                    + ("\n\nStopped early at your request." if stopped else "")))
+            except Exception as e:
+                err = str(e)
+                self._log(f"\nERROR: {err}", "error")
+                self.after(0, lambda: self._set_status("Error", C["error"]))
+                self.after(0, lambda m=err: messagebox.showerror(
+                    "Redraw failed", m))
+            finally:
+                self.after(0, self._stop_progress)
+                self.after(0, self._end_run)
+                self.after(0, lambda: self._redraw_btn.configure(
+                    state="normal", bg=C["border"]))
+
+
+        threading.Thread(target=_work, daemon=True).start()
+
+
+    def _val_reload_if_loaded(self):
+        """Rebuild the Validate gallery from disk after a redraw. The gallery
+        keeps an in-memory thumbnail cache keyed by image name (not file
+        contents), so it must be cleared first or the gallery would keep
+        showing the pre-redraw images."""
+        try:
+            if hasattr(self, "_val_thumb_cache"):
+                self._val_thumb_cache.clear()
+            if getattr(self, "_val_rows", None) and getattr(self, "_val_folder", None):
+                self._val_refresh_gallery()
+        except Exception:
+            pass
+
+
     def _run(self):
         self._run_from_images()
+
 
     def _run_from_images(self):
         """Mode A: run detection + classification directly on images."""
         import sys, datetime
+
 
         folder_str = self._img_folder_var.get().strip()
         if not folder_str:
@@ -6908,6 +8102,7 @@ draw();
             messagebox.showerror(
                 "Not found", f"Cannot find:\n{project}")
             return
+
 
         # Look for images\ subfolder
         images_dir = project / "images"
@@ -6922,6 +8117,7 @@ draw();
                     f"Created:\n{images_dir}\n\n"
                     f"Add your images there and run again.")
             return
+
 
         # Check deployment file exists and sites are aligned
         dep_exists = any(
@@ -6941,6 +8137,7 @@ draw();
             if not self._check_deployment_alignment(project):
                 return
 
+
         # Check if already run
         json_out = project / "image_recognition_file.json"
         if json_out.exists():
@@ -6955,7 +8152,9 @@ draw();
                 f"Running again will overwrite the existing results. Continue?"):
                 return
 
+
         folder = images_dir  # images scanned from here
+
 
         # If a previous run was interrupted (crash, stop, power cut), its
         # checkpoint will still be sitting in the project folder - offer
@@ -6976,17 +8175,20 @@ draw();
                 f"Resume and continue from there? Choosing 'No' starts a "
                 f"fresh run and discards that saved progress.")
 
+
         # Get classifier selection from registry
         from wt_models.registry import REGISTRY
         cls_name = self._cls_model_var.get()
         cls_id   = next((m["id"] for m in REGISTRY
                          if m["name"] == cls_name), None)
 
+
         if not cls_id:
             messagebox.showerror("Model error",
                 "Could not find selected model. "
                 "Please restart wildtag and try again.")
             return
+
 
         # SpeciesNet ships its model files separately (they're large and
         # not bundled in the installer). If the user picked SpeciesNet but
@@ -6996,6 +8198,7 @@ draw();
             from wt_models.registry import get_model as _get_model
             from wt_models.downloader import cache_bundle_present
             _meta = _get_model(cls_id)
+
 
             # SpeciesNet covers 2000+ species worldwide. Running the full
             # global model is heavy, so on a CPU-only machine it can be slow.
@@ -7021,6 +8224,7 @@ draw();
                     "No   -  cancel, so I can set a geographic filter first")
                 if not proceed:
                     return
+
 
             _cb = _meta.get("cache_bundle")
             if _cb and not cache_bundle_present(_cb):
@@ -7048,11 +8252,13 @@ draw();
             # will handle setup (or surface a clear error) during the run.
             pass
 
+
         det_conf  = self._det_conf_var.get()
         cls_conf  = self._cls_conf_var.get()
         quality   = self._QUALITY_MAP.get(self._quality_var.get(), 65)
         self._last_classifier_id = cls_id  # remembered for resume-sort
         do_val    = self._do_validation.get()
+        show_conf = self._show_conf.get() if hasattr(self, "_show_conf") else True
         chk_every = self._CHECKPOINT_MAP.get(self._checkpoint_var.get(), 200)
         geofence  = getattr(self, "_geofence_var", None)
         geofence  = geofence.get() if geofence else ""
@@ -7061,6 +8267,7 @@ draw();
         threads   = getattr(self, "_threads_var",  None)
         threads   = threads.get() if threads else max(1, (os.cpu_count() or 4) - 1)
 
+
         # Collect all images recursively
         exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
         image_paths = sorted([
@@ -7068,11 +8275,13 @@ draw();
             if p.suffix in exts
         ])
 
+
         if not image_paths:
             messagebox.showerror(
                 "No images found",
                 f"No JPG or PNG images found in:\n{folder}")
             return
+
 
         self._run_btn.configure(state="disabled", bg=C["mist"])
         self._stop_event.clear()
@@ -7083,10 +8292,12 @@ draw();
         import datetime as _dt
         run_start = _dt.datetime.now()
 
+
         self._log(
             f"Starting wildtag pipeline...\n"
             f"Found {len(image_paths):,} images in {project.name}/images\n",
             "head")
+
 
         # Estimate processing time — batched detection ~0.3s/image on CPU
         secs_per_img = 0.3
@@ -7103,12 +8314,14 @@ draw();
             f"wildtag can run overnight — leave it running and check back.\n",
             "plain")
 
+
         def _progress(done, total):
             if total > 0:
                 frac = done / total
                 w    = self._prog_canvas.winfo_width()
                 self._prog_canvas.coords(
                     self._prog_bar, 0, 0, int(w * frac), 4)
+
 
         def worker():
             try:
@@ -7118,7 +8331,9 @@ draw();
                 if str(wt_dir) not in sys.path:
                     sys.path.insert(0, str(wt_dir))
 
+
                 from wt_models.engine import run_pipeline
+
 
                 # Run detection + classification
                 results, stopped = run_pipeline(
@@ -7138,11 +8353,13 @@ draw();
                     checkpoint_every = chk_every,
                 )
 
+
                 if not results:
                     self._log("No detections found.", "skip")
                     self.after(0, self._stop_progress)
                     self.after(0, self._end_run)
                     return
+
 
                 # Write results as JSON in the same format wildtag already
                 # knows how to parse, then hand off to existing pipeline
@@ -7150,15 +8367,18 @@ draw();
                     f"\nWriting results for {len(results):,} detections...",
                     "head")
 
+
                 # Build a lightweight results CSV directly from engine output
                 import csv as csv_mod
                 results_csv = project / "results.csv"
+
 
                 # Delete stale files from previous runs
                 for stale in [results_csv,
                                project / "results_with_ids.csv"]:
                     try: stale.unlink()
                     except FileNotFoundError: pass
+
 
                 fields = list(results[0].keys())
                 with open(results_csv, "w", newline="",
@@ -7167,25 +8387,30 @@ draw();
                     w.writeheader()
                     w.writerows(results)
 
+
                 self._log(f"  Saved: {results_csv.name}", "ok")
+
 
                 # Always generate unique IDs, then sort if requested
                 success = skipped = 0
                 species_counts = {}
                 output_dir = project / "validation"
 
+
                 enriched = enrich_csv(results_csv, self._log)
                 if do_val:
                     success, skipped, species_counts = \
                         sort_detections_counted(
                             enriched, quality, None, self._log,
-                            classifier_id=cls_id)
+                            classifier_id=cls_id, show_conf=show_conf)
+
 
                 self.after(0, lambda: self._update_summary(
                     success, skipped, species_counts, output_dir))
                 self.after(0, lambda: self._set_status(
                     "Stopped" if stopped else "Complete",
                     C["skip"] if stopped else C["forest"]))
+
 
                 # Write run summary file
                 run_end      = _dt.datetime.now()
@@ -7195,11 +8420,13 @@ draw();
                 duration_str = (f"{hours}h {mins}m {secs}s" if hours
                                 else f"{mins}m {secs}s")
 
+
                 # Count sites from results
                 n_sites = len({
                     r.get("locationName","").strip()
                     for r in results if r.get("locationName","").strip()
                 })
+
 
                 summary_lines = [
                     "wildtag.ai - Run Summary" + (" (STOPPED EARLY)" if stopped else ""),
@@ -7236,10 +8463,12 @@ draw();
                     summary_lines.append(
                         f"  {sp.replace('_',' ').title():<30} {count:,}")
 
+
                 summary_path = project / "wildtag_run_summary.txt"
                 with open(summary_path, "w", encoding="utf-8") as f:
                     f.write("\n".join(summary_lines) + "\n")
                 self._log(f"  Saved run summary: {summary_path.name}", "ok")
+
 
                 self.after(0, lambda: self._show_pane("summary"))
                 if stopped:
@@ -7261,6 +8490,7 @@ draw();
                         f"Duration: {duration_str}\n\n"
                         f"Run summary saved to:\n{summary_path.name}"))
 
+
             except Exception as e:
                 err = str(e)
                 self._log(f"\nERROR: {err}", "error")
@@ -7272,12 +8502,16 @@ draw();
                 self.after(0, self._stop_progress)
                 self.after(0, self._end_run)
 
+
         threading.Thread(target=worker, daemon=True).start()
+
+
 
 
     def _persist_setting(self, key, var):
         self._settings[key] = var.get()
         save_settings(self._settings)
+
 
     def _restore_settings(self):
         s = self._settings
@@ -7286,12 +8520,18 @@ draw();
             self._quality_var.set(s["quality"])
         if s.get("checkpoint") in ("frequent","balanced","infrequent"):
             self._checkpoint_var.set(s["checkpoint"])
+        if "show_conf" in s and hasattr(self, "_show_conf"):
+            self._show_conf.set(bool(s["show_conf"]))
+
+
+
 
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
+
 
 def main():
     parser = argparse.ArgumentParser(description="wildtag.ai camera trap pipeline")
@@ -7300,6 +8540,7 @@ def main():
     parser.add_argument("--max-long-edge", type=int, default=1920)
     parser.add_argument("--no-gui",        action="store_true")
     args = parser.parse_args()
+
 
     if args.no_gui:
         if not args.csv:
@@ -7330,6 +8571,7 @@ def main():
             except Exception:
                 pass
             raise
+
 
 if __name__ == "__main__":
     main()
